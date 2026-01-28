@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Web PDF Editor (Multi-Select)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-panel: #252526;
+            --bg-header: #333333;
+            --accent: #007acc;
+            --border: #3e3e42;
+            --text: #cccccc;
+            --text-muted: #858585;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none; /* Prevent selection while dragging */
+        }
+
+        /* --- Header --- */
+        header {
+            height: 50px;
+            background: var(--bg-header);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            border-bottom: 1px solid var(--border);
+            justify-content: space-between;
+            z-index: 100;
+        }
+        .brand { font-weight: bold; color: white; display: flex; align-items: center; gap: 10px; }
+        
+        .toolbar { display: flex; gap: 5px; align-items: center; }
+        button {
+            background: none;
+            border: none;
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: rgba(255,255,255,0.1); }
+        button.active { background: var(--accent); color: white; }
+
+        .separator { width: 1px; height: 20px; background: var(--border); margin: 0 10px; }
+
+        /* --- Main Layout --- */
+        main { display: flex; flex: 1; overflow: hidden; }
+
+        /* --- Sidebar (Thumbnails) --- */
+        .sidebar {
+            width: 200px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .thumb { margin: 10px; cursor: pointer; opacity: 0.6; text-align: center; }
+        .thumb:hover, .thumb.active { opacity: 1; border: 2px solid var(--accent); }
+        .thumb canvas { max-width: 100%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+
+        /* --- Workspace (Scrollable) --- */
+        .workspace {
+            flex: 1;
+            background: #525659;
+            overflow-y: auto;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+            position: relative; /* Ensure context */
+        }
+
+        .page {
+            position: relative;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        /* --- Annotations --- */
+        .annotation {
+            position: absolute;
+            cursor: move;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        
+        /* Rect */
+        .type-rect { border: 2px solid var(--accent); background: rgba(0, 122, 204, 0.2); }
+        
+        /* Link */
+        .type-link { border: 1px solid black; background: transparent; }
+        .type-link:hover { background: rgba(0,0,0,0.1); cursor: pointer; }
+
+        /* Text */
+        .type-text {
+            border: 1px solid transparent;
+            color: black;
+            font-size: 16px;
+            padding: 4px;
+            font-family: Helvetica, Arial, sans-serif;
+            background: transparent;
+            cursor: default; 
+            display: flex;
+            align-items: center;
+        }
+        /* Hover border */
+        .type-text:hover, .type-rect:hover { border: 1px dashed #888; cursor: move; }
+        
+        /* Content Editable Wrapper */
+        .text-content { 
+            width: 100%; height: 100%; 
+            outline: none; cursor: text;
+            white-space: pre;
+            overflow: hidden;
+        }
+        .placeholder { color: #aaa; font-style: italic; pointer-events: none; }
+
+        /* Selection & Handles */
+        .selected { outline: 2px solid #ff9900; z-index: 100; }
+        
+        /* Always show handles if selected OR hovered (even in cursor mode) */
+        .selected .resize-handle, 
+        .type-text:hover .resize-handle, 
+        .type-rect:hover .resize-handle {
+            display: block;
+        }
+
+        .resize-handle {
+            position: absolute;
+            width: 10px; height: 10px;
+            background: white; border: 1px solid #ff9900;
+            display: none; /* Hidden by default */
+            z-index: 101;
+        }
+
+        /* --- Marquee Box --- */
+        #marquee-box {
+            position: fixed; /* Fixed to screen */
+            display: none;
+            background-color: rgba(0, 122, 204, 0.1);
+            border: 1px dashed #00d4ff; /* Brighter blue for visibility */
+            z-index: 2000;
+            pointer-events: none; /* Let clicks pass through */
+        }
+
+        /* --- Properties Panel --- */
+        .properties {
+            width: 260px;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+        }
+
+        .prop-row { display: flex; gap: 10px; }
+        .prop-group { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .prop-group label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+        
+        input, textarea {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px;
+            border-radius: 3px;
+            font-family: inherit;
+        }
+        input:focus, textarea:focus { border-color: var(--accent); outline: none; }
+        textarea { resize: vertical; min-height: 60px; }
+
+        .empty-state { color: var(--text-muted); text-align: center; margin-top: 50px; font-style: italic; }
+        
+        /* Loader */
+        #loader {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999;
+            display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;
+        }
+        .hidden { display: none !important; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <i class="fas fa-file-pdf"></i> PDF Editor
+        </div>
+        <div class="toolbar">
+            <button onclick="document.getElementById('file-in').click()">Open PDF</button>
+            <input type="file" id="file-in" class="hidden" accept=".pdf">
+            
+            <div class="separator"></div>
+            
+            <button id="btn-cursor" class="active" onclick="setTool('cursor')" title="Select"><i class="fas fa-mouse-pointer"></i></button>
+            <button id="btn-rect" onclick="setTool('rect')" title="Rectangle"><i class="far fa-square"></i></button>
+            <button id="btn-text" onclick="setTool('text')" title="Text"><i class="fas fa-font"></i></button>
+            <button id="btn-link" onclick="setTool('link')" title="Hyperlink"><i class="fas fa-link"></i></button>
+            
+            <div class="separator"></div>
+            
+            <button onclick="undo()" title="Undo"><i class="fas fa-undo"></i></button>
+            <button onclick="redo()" title="Redo"><i class="fas fa-redo"></i></button>
+            
+            <div class="separator"></div>
+            
+            <button onclick="app.exportData()">Save JSON</button>
+        </div>
+        <div style="color: var(--text-muted); font-size: 12px;">
+            <span id="page-num">Page 1</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="sidebar" id="sidebar"></div>
+        
+        <div class="workspace" id="workspace">
+            <div id="loader" class="hidden">Loading PDF...</div>
+            <div id="marquee-box"></div>
+        </div>
+        
+        <div class="properties" id="prop-panel">
+            <div class="empty-state">No Element Selected</div>
+        </div>
+    </main>
+
+    <script>
+        // --- State Management ---
+        const state = {
+            pdf: null,
+            scale: 1.5,
+            tool: 'cursor', // cursor, rect, text, link
+            elements: [], // { id, type, page, x, y, w, h, content, target }
+            history: [],
+            historyIndex: -1,
+            
+            selections: [], // Array of selected objects { id, element, dom }
+            
+            isDragging: false,
+            isResizing: false,
+            isDrawing: false,
+            isMarquee: false, 
+            resizeHandle: null,
+            
+            startPos: { x: 0, y: 0 },
+            initialEls: [], 
+            marqueeStart: { x: 0, y: 0 } 
+        };
+
+        // --- DOM Cache ---
+        const ui = {
+            workspace: document.getElementById('workspace'),
+            sidebar: document.getElementById('sidebar'),
+            props: document.getElementById('prop-panel'),
+            pageLabel: document.getElementById('page-num'),
+            loader: document.getElementById('loader'),
+            marquee: document.getElementById('marquee-box'),
+            btns: {
+                cursor: document.getElementById('btn-cursor'),
+                rect: document.getElementById('btn-rect'),
+                text: document.getElementById('btn-text'),
+                link: document.getElementById('btn-link')
+            }
+        };
+
+        // --- Initialization ---
+        document.getElementById('file-in').addEventListener('change', loadPDF);
+        
+        window.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        
+        window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') undo();
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y') redo();
+            if (e.key === 'Delete' && state.selections.length > 0 && !document.activeElement.isContentEditable) deleteSelections();
+        });
+
+        function setTool(tool) {
+            state.tool = tool;
+            Object.values(ui.btns).forEach(b => b.classList.remove('active'));
+            ui.btns[tool].classList.add('active');
+            ui.workspace.style.cursor = tool === 'text' ? 'text' : (tool === 'cursor' ? 'default' : 'crosshair');
+            
+            if (tool !== 'cursor') clearSelection();
+        }
+
+        // --- PDF Logic ---
+        async function loadPDF(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            ui.loader.classList.remove('hidden');
+
+            try {
+                const buffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(buffer).promise;
+                state.pdf = pdf;
+                state.elements = []; 
+                await renderPages();
+            } catch(err) {
+                alert("Error loading PDF");
+                console.error(err);
+            } finally {
+                ui.loader.classList.add('hidden');
+            }
+        }
+
+        async function renderPages() {
+            ui.sidebar.innerHTML = '';
+            ui.workspace.innerHTML = '<div id="loader" class="hidden">Loading PDF...</div><div id="marquee-box"></div>';
+
+            // FIX: Re-cache the marquee box because innerHTML destroyed the old one
+            ui.marquee = document.getElementById('marquee-box'); 
+
+            for (let i = 1; i <= state.pdf.numPages; i++) {
+                const page = await state.pdf.getPage(i);
+                const viewport = page.getViewport({ scale: state.scale });
+                
+                const wrapper = document.createElement('div');
+                wrapper.className = 'page';
+                wrapper.style.width = `${viewport.width}px`;
+                wrapper.style.height = `${viewport.height}px`;
+                wrapper.dataset.page = i;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                wrapper.appendChild(canvas);
+
+                ui.workspace.appendChild(wrapper);
+
+                state.elements.filter(el => el.page === i).forEach(el => {
+                    wrapper.appendChild(createDOM(el));
+                });
+
+                const thumb = document.createElement('div');
+                thumb.className = `thumb ${i === 1 ? 'active' : ''}`;
+                thumb.onclick = () => document.querySelector(`.page[data-page="${i}"]`).scrollIntoView({ block: 'center' });
+                
+                const thumbCanvas = document.createElement('canvas');
+                const thumbVp = page.getViewport({ scale: 0.15 });
+                thumbCanvas.width = thumbVp.width;
+                thumbCanvas.height = thumbVp.height;
+                await page.render({ canvasContext: thumbCanvas.getContext('2d'), viewport: thumbVp }).promise;
+                
+                thumb.appendChild(thumbCanvas);
+                thumb.appendChild(document.createElement('br'));
+                thumb.appendChild(document.createTextNode(`Page ${i}`));
+                ui.sidebar.appendChild(thumb);
+            }
+
+            ui.workspace.addEventListener('scroll', checkPageVisible);
+        }
+
+        function checkPageVisible() {
+            const center = ui.workspace.getBoundingClientRect().top + (ui.workspace.clientHeight / 2);
+            const pages = document.querySelectorAll('.page');
+            pages.forEach(p => {
+                const r = p.getBoundingClientRect();
+                if (r.top <= center && r.bottom >= center) {
+                    ui.pageLabel.innerText = `Page ${p.dataset.page}`;
+                    document.querySelector('.thumb.active')?.classList.remove('active');
+                    const thumbs = Array.from(ui.sidebar.children);
+                    thumbs.forEach(t => { if (t.innerText.includes(p.dataset.page)) t.classList.add('active'); });
+                }
+            });
+        }
+
+        // --- DOM Creation ---
+        function createDOM(el) {
+            const div = document.createElement('div');
+            div.className = `annotation type-${el.type}`;
+            if (state.selections.some(s => s.id === el.id)) div.classList.add('selected');
+            
+            div.style.left = el.x + 'px';
+            div.style.top = el.y + 'px';
+            div.style.width = el.w + 'px';
+            div.style.height = el.h + 'px';
+            div.id = el.id;
+
+            if (el.type === 'text') {
+                div.innerHTML = `<div class="text-content" contenteditable="true">${el.content || '<span class="placeholder">Type here...</span>'}</div>`;
+                const content = div.querySelector('.text-content');
+                
+                content.addEventListener('focus', () => {
+                    if (content.innerText === 'Type here...') content.innerText = '';
+                });
+                content.addEventListener('blur', () => {
+                    el.content = content.innerText;
+                    if (!el.content) content.innerHTML = '<span class="placeholder">Type here...</span>';
+                    pushHistory();
+                });
+                content.addEventListener('input', () => {
+                    const textArea = document.getElementById('prop-text');
+                    if (textArea && state.selections.length === 1 && state.selections[0].id === el.id) {
+                        textArea.value = content.innerText;
+                    }
+                });
+                content.addEventListener('mousedown', e => {
+                    if (document.activeElement === content) e.stopPropagation();
+                });
+            }
+
+            if (el.type === 'link') {
+                div.title = `Jump to Page ${el.target || '?'}`;
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    const target = document.querySelector(`.page[data-page="${el.target}"]`);
+                    if (target) target.scrollIntoView({ block: 'center' });
+                };
+            }
+
+            if (el.type === 'rect' || el.type === 'text') {
+                ['nw', 'ne', 'sw', 'se'].forEach(dir => {
+                    const h = document.createElement('div');
+                    h.className = `resize-handle`;
+                    h.style.cursor = `${dir}-resize`;
+                    h.style[dir.includes('n') ? 'top' : 'bottom'] = '-5px';
+                    h.style[dir.includes('w') ? 'left' : 'right'] = '-5px';
+                    h.dataset.dir = dir;
+                    div.appendChild(h);
+                });
+            }
+
+            return div;
+        }
+
+        // --- Interaction Engine ---
+
+        function onMouseDown(e) {
+            const target = e.target;
+            const pageWrapper = target.closest('.page');
+            if (!pageWrapper) return;
+
+            const pageNum = parseInt(pageWrapper.dataset.page);
+            const rect = pageWrapper.getBoundingClientRect();
+
+            // 1. Check Resize Handle
+            if (target.classList.contains('resize-handle')) {
+                const elDiv = target.closest('.annotation');
+                const elData = state.elements.find(x => x.id === elDiv.id);
+                if (!state.selections.some(s => s.id === elData.id)) {
+                    selectElement(elData.id);
+                }
+                startResize(e, target.dataset.dir);
+                return;
+            }
+
+            // 2. Check Element Click
+            const elDiv = target.closest('.annotation');
+            if (elDiv) {
+                const id = elDiv.id;
+                const elData = state.elements.find(x => x.id === id);
+                
+                if (state.tool === 'text' && elData.type === 'text' && !state.isDrawing) {
+                    const content = elDiv.querySelector('.text-content');
+                    setTimeout(() => content.focus(), 0);
+                    selectElement(id);
+                    return;
+                }
+
+                if (state.tool === 'cursor') {
+                    if (!e.shiftKey && !state.selections.some(s => s.id === id)) {
+                        selectElement(id); 
+                    } else if (e.shiftKey) {
+                        toggleSelection(id); 
+                    }
+                    startDrag(e);
+                    return;
+                }
+
+                return;
+            }
+
+            // 3. Empty Space
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (state.tool === 'cursor') {
+                startMarquee(e);
+                clearSelection(); 
+            } else if (['rect', 'link', 'text'].includes(state.tool)) {
+                startDrawing(e, pageNum, x, y);
+            }
+        }
+
+        function onMouseMove(e) {
+            if (state.isResizing) {
+                updateResize(e);
+            } else if (state.isDragging) {
+                updateDrag(e);
+            } else if (state.isMarquee) {
+                updateMarquee(e);
+            } else if (state.isDrawing) {
+                updateDrawing(e);
+            }
+        }
+
+        function onMouseUp(e) {
+            if (state.isResizing) finishResize();
+            else if (state.isDragging) finishDrag();
+            else if (state.isMarquee) finishMarquee();
+            else if (state.isDrawing) finishDrawing();
+        }
+
+        // --- Marquee Logic ---
+        function startMarquee(e) {
+            state.isMarquee = true;
+            state.marqueeStart = { x: e.clientX, y: e.clientY };
+            
+            ui.marquee.style.display = 'block';
+            ui.marquee.style.left = e.clientX + 'px';
+            ui.marquee.style.top = e.clientY + 'px';
+            ui.marquee.style.width = '0px';
+            ui.marquee.style.height = '0px';
+        }
+
+        function updateMarquee(e) {
+            const start = state.marqueeStart;
+            const width = Math.abs(e.clientX - start.x);
+            const height = Math.abs(e.clientY - start.y);
+            const left = Math.min(e.clientX, start.x);
+            const top = Math.min(e.clientY, start.y);
+
+            ui.marquee.style.width = width + 'px';
+            ui.marquee.style.height = height + 'px';
+            ui.marquee.style.left = left + 'px';
+            ui.marquee.style.top = top + 'px';
+
+            // Collision Detection
+            const marqueeRect = { l: left, t: top, r: left + width, b: top + height };
+            
+            const allEls = document.querySelectorAll('.annotation');
+            allEls.forEach(dom => {
+                const r = dom.getBoundingClientRect();
+                const isHit = !(marqueeRect.r < r.left || marqueeRect.l > r.right || marqueeRect.b < r.top || marqueeRect.t > r.bottom);
+                
+                if (isHit) {
+                    const id = dom.id;
+                    if (!state.selections.some(s => s.id === id)) {
+                        addToSelection(id);
+                    }
+                } else {
+                    const id = dom.id;
+                    if (state.selections.some(s => s.id === id)) {
+                        removeFromSelection(id);
+                    }
+                }
+            });
+        }
+
+        function finishMarquee() {
+            state.isMarquee = false;
+            ui.marquee.style.display = 'none';
+            renderPropPanel();
+        }
+
+        // --- Selection Management ---
+        function clearSelection() {
+            state.selections.forEach(s => {
+                const dom = document.getElementById(s.id);
+                if (dom) dom.classList.remove('selected');
+            });
+            state.selections = [];
+            renderPropPanel();
+        }
+
+        function selectElement(id) {
+            clearSelection();
+            addToSelection(id);
+        }
+
+        function toggleSelection(id) {
+            if (state.selections.some(s => s.id === id)) removeFromSelection(id);
+            else addToSelection(id);
+            renderPropPanel();
+        }
+
+        function addToSelection(id) {
+            const el = state.elements.find(x => x.id === id);
+            const dom = document.getElementById(id);
+            if (el && dom) {
+                state.selections.push({ id, element: el, dom });
+                dom.classList.add('selected');
+            }
+            renderPropPanel();
+        }
+
+        function removeFromSelection(id) {
+            const idx = state.selections.findIndex(s => s.id === id);
+            if (idx > -1) {
+                state.selections.splice(idx, 1);
+                const dom = document.getElementById(id);
+                if (dom) dom.classList.remove('selected');
+            }
+            renderPropPanel();
+        }
+
+        // --- Drag Logic (Multi) ---
+        function startDrag(e) {
+            state.isDragging = true;
+            state.startPos = { x: e.clientX, y: e.clientY };
+            state.initialEls = state.selections.map(s => ({ id: s.id, x: s.element.x, y: s.element.y }));
+        }
+
+        function updateDrag(e) {
+            const dx = e.clientX - state.startPos.x;
+            const dy = e.clientY - state.startPos.y;
+            
+            state.initialEls.forEach(init => {
+                const sel = state.selections.find(s => s.id === init.id);
+                if (!sel) return;
+                
+                sel.element.x = init.x + dx;
+                sel.element.y = init.y + dy;
+                
+                sel.dom.style.left = sel.element.x + 'px';
+                sel.dom.style.top = sel.element.y + 'px';
+            });
+
+            if (state.selections.length === 1) updatePropInputs(state.selections[0].element);
+        }
+
+        function finishDrag() {
+            state.isDragging = false;
+            pushHistory();
+        }
+
+        // --- Resize Logic ---
+        function startResize(e, dir) {
+            state.isResizing = true;
+            state.resizeHandle = dir;
+            state.startPos = { x: e.clientX, y: e.clientY };
+            const el = state.selections[0].element;
+            state.initialEls = [{ id: el.id, x: el.x, y: el.y, w: el.w, h: el.h }];
+        }
+
+        function updateResize(e) {
+            const dx = e.clientX - state.startPos.x;
+            const dy = e.clientY - state.startPos.y;
+            const dir = state.resizeHandle;
+            const init = state.initialEls[0];
+            
+            let nx = init.x, ny = init.y, nw = init.w, nh = init.h;
+
+            if (dir.includes('e')) nw = Math.max(10, init.w + dx);
+            if (dir.includes('s')) nh = Math.max(10, init.h + dy);
+            if (dir.includes('w')) { nw = Math.max(10, init.w - dx); nx = init.x + dx; }
+            if (dir.includes('n')) { nh = Math.max(10, init.h - dy); ny = init.y + dy; }
+
+            const el = state.selections[0].element;
+            el.x = nx; el.y = ny; el.w = nw; el.h = nh;
+
+            state.selections[0].dom.style.left = nx + 'px';
+            state.selections[0].dom.style.top = ny + 'px';
+            state.selections[0].dom.style.width = nw + 'px';
+            state.selections[0].dom.style.height = nh + 'px';
+            
+            updatePropInputs(el);
+        }
+
+        function finishResize() {
+            state.isResizing = false;
+            pushHistory();
+        }
+
+        // --- Drawing Logic ---
+        function startDrawing(e, page, x, y) {
+            state.isDrawing = true;
+            state.drawStart = { x, y };
+            state.drawPage = page;
+            
+            const newEl = {
+                id: 'el-' + Date.now(),
+                type: state.tool,
+                page: page,
+                x: x, y: y,
+                w: 0, h: 0,
+                content: '',
+                target: 1
+            };
+            state.elements.push(newEl);
+            
+            const wrapper = document.querySelector(`.page[data-page="${page}"]`);
+            wrapper.appendChild(createDOM(newEl));
+            
+            state.currentDrawId = newEl.id;
+            selectElement(newEl.id); 
+        }
+
+        function updateDrawing(e) {
+            const wrapper = document.querySelector(`.page[data-page="${state.drawPage}"]`);
+            const rect = wrapper.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            
+            const el = state.elements.find(x => x.id === state.currentDrawId);
+            const sx = state.drawStart.x;
+            const sy = state.drawStart.y;
+
+            el.x = Math.min(sx, mx);
+            el.y = Math.min(sy, my);
+            el.w = Math.abs(mx - sx);
+            el.h = Math.abs(my - sy);
+            
+            if (el.type === 'text') {
+                if (el.w < 100) el.w = 100;
+                if (el.h < 30) el.h = 30;
+            }
+
+            const dom = document.getElementById(el.id);
+            if (dom) {
+                dom.style.left = el.x + 'px';
+                dom.style.top = el.y + 'px';
+                dom.style.width = el.w + 'px';
+                dom.style.height = el.h + 'px';
+            }
+            updatePropInputs(el);
+        }
+
+        function finishDrawing() {
+            state.isDrawing = false;
+            const el = state.elements.find(x => x.id === state.currentDrawId);
+            
+            if (el.w < 5 && el.h < 5 && el.type !== 'text') {
+                state.elements = state.elements.filter(x => x.id !== el.id);
+                document.getElementById(el.id).remove();
+                clearSelection();
+            } else if (el.type === 'text') {
+                const dom = document.getElementById(el.id);
+                const content = dom.querySelector('.text-content');
+                setTimeout(() => content.focus(), 0);
+            }
+            pushHistory();
+        }
+
+        // --- Properties Panel ---
+        function renderPropPanel() {
+            const panel = ui.props;
+            panel.innerHTML = '';
+
+            if (state.selections.length === 0) {
+                panel.innerHTML = '<div class="empty-state">No Element Selected</div>';
+                return;
+            }
+
+            if (state.selections.length > 1) {
+                panel.innerHTML = '<div class="empty-state">Multiple Elements Selected</div>';
+                return;
+            }
+
+            const el = state.selections[0].element;
+
+            panel.innerHTML += `
+                <div class="prop-row">
+                    <div class="prop-group"><label>X</label><input type="number" id="prop-x" value="${Math.round(el.x)}"></div>
+                    <div class="prop-group"><label>Y</label><input type="number" id="prop-y" value="${Math.round(el.y)}"></div>
+                </div>
+                <div class="prop-row">
+                    <div class="prop-group"><label>W</label><input type="number" id="prop-w" value="${Math.round(el.w)}"></div>
+                    <div class="prop-group"><label>H</label><input type="number" id="prop-h" value="${Math.round(el.h)}"></div>
+                </div>
+            `;
+
+            if (el.type === 'text') {
+                panel.innerHTML += `
+                    <div class="prop-group">
+                        <label>Content</label>
+                        <textarea id="prop-text">${el.content}</textarea>
+                    </div>
+                `;
+            }
+            if (el.type === 'link') {
+                panel.innerHTML += `
+                    <div class="prop-group">
+                        <label>Target Page</label>
+                        <input type="number" id="prop-page" value="${el.target}">
+                    </div>
+                `;
+            }
+
+            const btn = document.createElement('button');
+            btn.style.background = '#d94444';
+            btn.style.color = 'white';
+            btn.style.marginTop = '20px';
+            btn.innerText = 'Delete Element';
+            btn.onclick = deleteSelections;
+            panel.appendChild(btn);
+
+            ['x', 'y', 'w', 'h'].forEach(k => {
+                document.getElementById(`prop-${k}`).addEventListener('input', (e) => {
+                    el[k] = parseFloat(e.target.value);
+                    const dom = document.getElementById(state.selections[0].id);
+                    if (dom) {
+                        if (k === 'x') dom.style.left = el[k] + 'px';
+                        if (k === 'y') dom.style.top = el[k] + 'px';
+                        if (k === 'w' || k === 'h') dom.style[k === 'w' ? 'width' : 'height'] = el[k] + 'px';
+                    }
+                });
+                document.getElementById(`prop-${k}`).addEventListener('change', pushHistory);
+            });
+
+            if (el.type === 'text') {
+                document.getElementById('prop-text').addEventListener('input', (e) => {
+                    el.content = e.target.value;
+                    const dom = document.querySelector(`#${el.id} .text-content`);
+                    if (dom) dom.innerText = e.target.value;
+                });
+            }
+            if (el.type === 'link') {
+                document.getElementById('prop-page').addEventListener('change', (e) => {
+                    el.target = parseInt(e.target.value);
+                    pushHistory();
+                });
+            }
+        }
+
+        function updatePropInputs(el) {
+            const setVal = (id, v) => {
+                const input = document.getElementById(id);
+                if (input) input.value = Math.round(v);
+            };
+            setVal('prop-x', el.x);
+            setVal('prop-y', el.y);
+            setVal('prop-w', el.w);
+            setVal('prop-h', el.h);
+        }
+
+        function deleteSelections() {
+            state.selections.forEach(s => {
+                const dom = document.getElementById(s.id);
+                if (dom) dom.remove();
+                state.elements = state.elements.filter(x => x.id !== s.id);
+            });
+            clearSelection();
+            pushHistory();
+        }
+
+        // --- History ---
+        function pushHistory() {
+            if (state.historyIndex < state.history.length - 1) {
+                state.history = state.history.slice(0, state.historyIndex + 1);
+            }
+            state.history.push(JSON.parse(JSON.stringify(state.elements)));
+            state.historyIndex++;
+            if (state.history.length > 20) {
+                state.history.shift();
+                state.historyIndex--;
+            }
+        }
+
+        function undo() {
+            if (state.historyIndex <= 0) return;
+            state.historyIndex--;
+            state.elements = JSON.parse(JSON.stringify(state.history[state.historyIndex]));
+            refreshAll();
+            clearSelection();
+        }
+
+        function redo() {
+            if (state.historyIndex >= state.history.length - 1) return;
+            state.historyIndex++;
+            state.elements = JSON.parse(JSON.stringify(state.history[state.historyIndex]));
+            refreshAll();
+            clearSelection();
+        }
+
+        function refreshAll() {
+            document.querySelectorAll('.annotation').forEach(el => el.remove());
+            const pages = document.querySelectorAll('.page');
+            pages.forEach(p => {
+                const num = parseInt(p.dataset.page);
+                state.elements.filter(el => el.page === num).forEach(el => {
+                    p.appendChild(createDOM(el));
+                });
+            });
+        }
+
+        function app() {} 
+        app.exportData = () => {
+            const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.elements));
+            const a = document.createElement('a');
+            a.href = str;
+            a.download = "annotations.json";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        };
+
+    </script>
+</body>
+</html>
