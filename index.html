@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Web PDF Editor (Opacity)</title>
+    <title>2D Web PDF Editor (Clean Links)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -110,7 +110,7 @@
         .type-rect {  }
         .type-link { cursor: pointer; }
         
-        .type-text {
+        .type-text, .type-link {
             color: black;
             font-size: 16px;
             padding: 4px;
@@ -120,7 +120,13 @@
             align-items: center;
         }
         
-        .type-text:hover, .type-rect:hover { border-style: dashed !important; border-color: #888 !important; }
+        /* Link Specifics */
+        .type-link .text-content {
+            color: blue; 
+            text-decoration: underline; 
+        }
+        
+        .type-text:hover, .type-rect:hover, .type-link:hover { border-style: dashed !important; border-color: #888 !important; }
         
         .text-content { 
             width: 100%; height: 100%; 
@@ -135,7 +141,8 @@
         
         .selected .resize-handle, 
         .type-text:hover .resize-handle, 
-        .type-rect:hover .resize-handle {
+        .type-rect:hover .resize-handle,
+        .type-link:hover .resize-handle {
             display: block;
         }
 
@@ -169,13 +176,13 @@
             overflow-y: auto;
         }
 
-        .prop-row { display: flex; gap: 10px; align-items: center; } /* Aligned center for range sliders */
-        .prop-row.inputs-bottom { align-items: flex-end; } /* Align bottom for text inputs */
+        .prop-row { display: flex; gap: 10px; align-items: center; } 
+        .prop-row.inputs-bottom { align-items: flex-end; } 
         
         .prop-group { flex: 1; display: flex; flex-direction: column; gap: 4px; }
         .prop-group label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
         
-        input[type="number"], textarea {
+        input[type="number"], textarea, select {
             background: var(--bg-dark);
             border: 1px solid var(--border);
             color: var(--text);
@@ -185,13 +192,10 @@
             width: 100%;
             box-sizing: border-box;
         }
-        input[type="number"]:focus, textarea:focus { border-color: var(--accent); outline: none; }
+        input[type="number"]:focus, textarea:focus, select:focus { border-color: var(--accent); outline: none; }
         textarea { resize: vertical; min-height: 60px; }
 
-        input[type="range"] {
-            width: 100%;
-            cursor: pointer;
-        }
+        input[type="range"] { width: 100%; cursor: pointer; }
 
         /* Color Picker Styling */
         input[type="color"] {
@@ -315,7 +319,7 @@
             state.tool = tool;
             Object.values(ui.btns).forEach(b => b.classList.remove('active'));
             ui.btns[tool].classList.add('active');
-            ui.workspace.style.cursor = tool === 'text' ? 'text' : (tool === 'cursor' ? 'default' : 'crosshair');
+            ui.workspace.style.cursor = tool === 'text' || tool === 'link' ? 'text' : (tool === 'cursor' ? 'default' : 'crosshair');
             if (tool !== 'cursor') clearSelection();
         }
 
@@ -402,9 +406,7 @@
         // --- Helper: Hex to RGBA ---
         function applyOpacity(hex, opacity) {
             if (!hex || hex === 'transparent' || opacity === 1) return hex;
-            // Strip hash
             hex = hex.replace('#', '');
-            // Parse hex to rgb
             let r = parseInt(hex.substring(0, 2), 16);
             let g = parseInt(hex.substring(2, 4), 16);
             let b = parseInt(hex.substring(4, 6), 16);
@@ -424,30 +426,36 @@
             div.id = el.id;
 
             // --- Apply Custom Styles ---
-            if (el.type === 'text') {
+            if (el.type === 'text' || el.type === 'link') {
                 div.style.fontSize = (el.fontSize || 16) + 'px';
-                div.style.color = (el.color || '#000000');
+                div.style.color = (el.color || (el.type === 'link' ? 'blue' : '#000000'));
                 div.style.borderWidth = (el.borderWidth || 0) + 'px';
                 div.style.borderColor = (el.borderColor || 'transparent');
                 div.style.borderStyle = 'solid';
                 
-                // Handle Fill + Opacity
                 const opacity = (el.fillOpacity !== undefined) ? el.fillOpacity : 1;
                 div.style.backgroundColor = applyOpacity(el.fillColor || 'transparent', opacity);
-
-            } else if (el.type === 'rect' || el.type === 'link') {
+            } else if (el.type === 'rect') {
                 div.style.borderWidth = (el.borderWidth || (el.type === 'rect' ? 2 : 1)) + 'px';
                 div.style.borderColor = (el.borderColor || (el.type === 'rect' ? '#007acc' : '#000000'));
                 div.style.borderStyle = 'solid';
                 
-                // Handle Fill + Opacity
                 const opacity = (el.fillOpacity !== undefined) ? el.fillOpacity : (el.type === 'rect' ? 0.2 : 0);
                 div.style.backgroundColor = applyOpacity(el.fillColor || (el.type === 'rect' ? '#007acc' : 'transparent'), opacity);
             }
             // --------------------------
 
-            if (el.type === 'text') {
-                div.innerHTML = `<div class="text-content" contenteditable="true">${el.content || '<span class="placeholder">Type here...</span>'}</div>`;
+            // Text & Link Content Logic
+            if (el.type === 'text' || el.type === 'link') {
+                // LINKS ARE NOW EMPTY BY DEFAULT, TEXT HAS PLACEHOLDER
+                let displayContent = el.content;
+                
+                // Only show "Type here..." for Text elements if content is missing
+                if (el.type === 'text' && (!displayContent || displayContent.trim() === '')) {
+                    displayContent = '<span class="placeholder">Type here...</span>';
+                }
+
+                div.innerHTML = `<div class="text-content" contenteditable="true">${displayContent}</div>`;
                 const content = div.querySelector('.text-content');
                 
                 content.addEventListener('focus', () => {
@@ -455,7 +463,10 @@
                 });
                 content.addEventListener('blur', () => {
                     el.content = content.innerText;
-                    if (!el.content) content.innerHTML = '<span class="placeholder">Type here...</span>';
+                    // Only restore placeholder for TEXT elements
+                    if (el.type === 'text' && (!el.content || el.content.trim() === '')) {
+                        content.innerHTML = '<span class="placeholder">Type here...</span>';
+                    }
                     pushHistory();
                 });
                 content.addEventListener('input', () => {
@@ -470,15 +481,19 @@
             }
 
             if (el.type === 'link') {
-                div.title = `Jump to Page ${el.target || '?'}`;
+                div.title = `Link: ${el.linkType === 'url' ? el.targetUrl : 'Page ' + el.targetPage}`;
                 div.onclick = (e) => {
                     e.stopPropagation();
-                    const target = document.querySelector(`.page[data-page="${el.target}"]`);
-                    if (target) target.scrollIntoView({ block: 'center' });
+                    if (el.linkType === 'url') {
+                        window.open(el.targetUrl, '_blank');
+                    } else {
+                        const target = document.querySelector(`.page[data-page="${el.targetPage}"]`);
+                        if (target) target.scrollIntoView({ block: 'center' });
+                    }
                 };
             }
 
-            if (el.type === 'rect' || el.type === 'text') {
+            if (el.type === 'rect' || el.type === 'text' || el.type === 'link') {
                 ['nw', 'ne', 'sw', 'se'].forEach(dir => {
                     const h = document.createElement('div');
                     h.className = `resize-handle`;
@@ -518,7 +533,7 @@
                 const id = elDiv.id;
                 const elData = state.elements.find(x => x.id === id);
                 
-                if (state.tool === 'text' && elData.type === 'text' && !state.isDrawing) {
+                if ((state.tool === 'text' || state.tool === 'link') && !state.isDrawing) {
                     const content = elDiv.querySelector('.text-content');
                     setTimeout(() => content.focus(), 0);
                     selectElement(id);
@@ -744,13 +759,19 @@
             } else if (state.tool === 'rect') {
                 defaults.borderWidth = 2;
                 defaults.borderColor = '#007acc';
-                defaults.fillColor = '#007acc'; // Now stored as Hex
-                defaults.fillOpacity = 0.2;     // Opacity stored separately
+                defaults.fillColor = '#007acc'; 
+                defaults.fillOpacity = 0.2;     
             } else if (state.tool === 'link') {
+                defaults.fontSize = 16;
+                defaults.color = 'blue';
                 defaults.borderWidth = 1;
-                defaults.borderColor = '#000000';
-                defaults.fillColor = '#ffffff';
+                defaults.borderColor = 'black';
+                defaults.fillColor = 'transparent';
                 defaults.fillOpacity = 0;
+                defaults.linkType = 'page'; 
+                defaults.targetPage = 1;
+                defaults.targetUrl = 'https://';
+                defaults.content = ''; // CHANGED: Empty by default
             }
 
             state.elements.push(defaults);
@@ -777,7 +798,7 @@
             el.w = Math.abs(mx - sx);
             el.h = Math.abs(my - sy);
             
-            if (el.type === 'text') {
+            if (el.type === 'text' || el.type === 'link') {
                 if (el.w < 100) el.w = 100;
                 if (el.h < 30) el.h = 30;
             }
@@ -796,11 +817,16 @@
             state.isDrawing = false;
             const el = state.elements.find(x => x.id === state.currentDrawId);
             
-            if (el.w < 5 && el.h < 5 && el.type !== 'text') {
+            if (el.w < 5 && el.h < 5 && el.type !== 'text' && el.type !== 'link') {
                 state.elements = state.elements.filter(x => x.id !== el.id);
                 document.getElementById(el.id).remove();
                 clearSelection();
-            } else if (el.type === 'text') {
+            } else if (el.type === 'text' || el.type === 'link') {
+                // Don't auto-focus empty links to keep them clean. 
+                // But if user wants to type, they can click it.
+                // However, for usability, let's focus it if it's a Text box, 
+                // but maybe not for a Link box since it's empty.
+                // Actually, consistent UX: always focus contenteditable on creation so they can type immediately.
                 const dom = document.getElementById(el.id);
                 const content = dom.querySelector('.text-content');
                 setTimeout(() => content.focus(), 0);
@@ -838,20 +864,19 @@
             `;
 
             // 2. Style Properties
-            if (el.type === 'text') {
+            if (el.type === 'text' || el.type === 'link') {
                 panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
                 
                 panel.innerHTML += `
                     <div class="prop-row inputs-bottom">
                         <div class="prop-group"><label>Font Size</label><input type="number" id="prop-fs" value="${el.fontSize || 16}"></div>
-                        <div class="prop-group"><label>Text Color</label><input type="color" id="prop-tc" value="${el.color || '#000000'}"></div>
+                        <div class="prop-group"><label>Text Color</label><input type="color" id="prop-tc" value="${hexFromStyle(el.color, '#000000')}"></div>
                     </div>
                 `;
             }
             if (['rect', 'link', 'text'].includes(el.type)) {
                 panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
                 
-                // Border
                 panel.innerHTML += `
                     <div class="prop-row inputs-bottom">
                         <div class="prop-group"><label>Border Width</label><input type="number" id="prop-bw" value="${el.borderWidth || 0}"></div>
@@ -859,7 +884,6 @@
                     </div>
                 `;
                 
-                // Fill Color
                 const defaultFill = (el.type === 'rect' ? '#007acc' : (el.type === 'link' ? '#ffffff' : '#ffffff'));
                 panel.innerHTML += `
                     <div class="prop-row inputs-bottom">
@@ -870,23 +894,44 @@
             }
 
             // 3. Specific Properties
-            if (el.type === 'text') {
+            if (el.type === 'text' || el.type === 'link') {
                 panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
                 panel.innerHTML += `
                     <div class="prop-group">
                         <label>Content</label>
-                        <textarea id="prop-text">${el.content}</textarea>
+                        <textarea id="prop-text" placeholder="Enter text here...">${el.content}</textarea>
                     </div>
                 `;
             }
             if (el.type === 'link') {
                 panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
+                
+                const currentType = el.linkType || 'page';
                 panel.innerHTML += `
                     <div class="prop-group">
-                        <label>Target Page</label>
-                        <input type="number" id="prop-page" value="${el.target}">
+                        <label>Link Type</label>
+                        <select id="prop-link-type">
+                            <option value="page" ${currentType === 'page' ? 'selected' : ''}>Page (Internal)</option>
+                            <option value="url" ${currentType === 'url' ? 'selected' : ''}>URL (External)</option>
+                        </select>
                     </div>
                 `;
+
+                if (currentType === 'page') {
+                    panel.innerHTML += `
+                        <div class="prop-group" id="prop-page-group">
+                            <label>Target Page</label>
+                            <input type="number" id="prop-page" value="${el.targetPage || 1}">
+                        </div>
+                    `;
+                } else {
+                    panel.innerHTML += `
+                        <div class="prop-group" id="prop-url-group">
+                            <label>Target URL</label>
+                            <input type="text" id="prop-url" value="${el.targetUrl || 'https://'}">
+                        </div>
+                    `;
+                }
             }
 
             // 4. Actions
@@ -898,9 +943,10 @@
             btn.onclick = deleteSelections;
             panel.appendChild(btn);
 
+            // Bind Events
             bindGeometryEvents();
             
-            if (el.type === 'text') {
+            if (el.type === 'text' || el.type === 'link') {
                 bindStyleEvents('fs', 'fontSize', 'px');
                 bindColorEvents('tc', 'color');
             }
@@ -911,20 +957,42 @@
                 bindOpacityEvents('fo', 'fillOpacity');
             }
 
-            if (el.type === 'text') {
+            if (el.type === 'text' || el.type === 'link') {
                 const t = document.getElementById('prop-text');
                 t.addEventListener('input', (e) => {
                     el.content = e.target.value;
                     const dom = document.querySelector(`#${el.id} .text-content`);
                     if (dom) dom.innerText = e.target.value;
                 });
-            }
-            if (el.type === 'link') {
-                const p = document.getElementById('prop-page');
-                p.addEventListener('change', (e) => {
-                    el.target = parseInt(e.target.value);
-                    pushHistory();
+                // Sync textarea to internal state on change (blur)
+                t.addEventListener('change', () => {
+                   // Data is already synced on input
+                   pushHistory(); 
                 });
+            }
+
+            if (el.type === 'link') {
+                const typeSelect = document.getElementById('prop-link-type');
+                typeSelect.addEventListener('change', (e) => {
+                    el.linkType = e.target.value;
+                    renderPropPanel(); 
+                    const dom = document.getElementById(el.id);
+                    dom.style.backgroundColor = applyOpacity(el.fillColor || 'transparent', el.fillOpacity || 0);
+                });
+
+                if (el.linkType === 'page') {
+                    const p = document.getElementById('prop-page');
+                    p.addEventListener('change', (e) => {
+                        el.targetPage = parseInt(e.target.value);
+                        pushHistory();
+                    });
+                } else {
+                    const u = document.getElementById('prop-url');
+                    u.addEventListener('change', (e) => {
+                        el.targetUrl = e.target.value;
+                        pushHistory();
+                    });
+                }
             }
         }
 
@@ -946,7 +1014,6 @@
             input.addEventListener('input', (e) => {
                 const val = e.target.value;
                 state.selections[0].element[prop] = val;
-                // If changing fill color, we need to re-apply opacity
                 if (prop === 'fillColor') {
                     const el = state.selections[0].element;
                     const op = el.fillOpacity !== undefined ? el.fillOpacity : 1;
@@ -964,8 +1031,6 @@
             input.addEventListener('input', (e) => {
                 const val = parseFloat(e.target.value);
                 state.selections[0].element[prop] = val;
-                
-                // Re-calculate background color with new opacity
                 const el = state.selections[0].element;
                 const color = el.fillColor || (el.type === 'rect' ? '#007acc' : '#ffffff');
                 state.selections[0].dom.style.backgroundColor = applyOpacity(color, val);
@@ -1000,7 +1065,7 @@
             setVal('prop-h', el.h);
         }
 
-        // Helper: Convert rgba/rgb to Hex for the input[type="color"]
+        // Helper: Convert rgba/rgb to Hex
         function hexFromStyle(colorStr, defaultHex) {
             if (!colorStr || colorStr === 'transparent') return defaultHex;
             if (colorStr.startsWith('#')) return colorStr;
