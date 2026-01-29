@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Web PDF Editor (Multi-Select)</title>
+    <title>2D Web PDF Editor (Opacity)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -33,7 +33,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            user-select: none; /* Prevent selection while dragging */
+            user-select: none;
         }
 
         /* --- Header --- */
@@ -67,7 +67,7 @@
         /* --- Main Layout --- */
         main { display: flex; flex: 1; overflow: hidden; }
 
-        /* --- Sidebar (Thumbnails) --- */
+        /* --- Sidebar --- */
         .sidebar {
             width: 200px;
             background: var(--bg-panel);
@@ -80,7 +80,7 @@
         .thumb:hover, .thumb.active { opacity: 1; border: 2px solid var(--accent); }
         .thumb canvas { max-width: 100%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
 
-        /* --- Workspace (Scrollable) --- */
+        /* --- Workspace --- */
         .workspace {
             flex: 1;
             background: #525659;
@@ -90,7 +90,7 @@
             flex-direction: column;
             align-items: center;
             gap: 30px;
-            position: relative; /* Ensure context */
+            position: relative;
         }
 
         .page {
@@ -104,31 +104,24 @@
             cursor: move;
             box-sizing: border-box;
             user-select: none;
+            border-style: solid; 
         }
         
-        /* Rect */
-        .type-rect { border: 2px solid var(--accent); background: rgba(0, 122, 204, 0.2); }
+        .type-rect {  }
+        .type-link { cursor: pointer; }
         
-        /* Link */
-        .type-link { border: 1px solid black; background: transparent; }
-        .type-link:hover { background: rgba(0,0,0,0.1); cursor: pointer; }
-
-        /* Text */
         .type-text {
-            border: 1px solid transparent;
             color: black;
             font-size: 16px;
             padding: 4px;
             font-family: Helvetica, Arial, sans-serif;
-            background: transparent;
-            cursor: default; 
+            border-style: solid; 
             display: flex;
             align-items: center;
         }
-        /* Hover border */
-        .type-text:hover, .type-rect:hover { border: 1px dashed #888; cursor: move; }
         
-        /* Content Editable Wrapper */
+        .type-text:hover, .type-rect:hover { border-style: dashed !important; border-color: #888 !important; }
+        
         .text-content { 
             width: 100%; height: 100%; 
             outline: none; cursor: text;
@@ -138,9 +131,8 @@
         .placeholder { color: #aaa; font-style: italic; pointer-events: none; }
 
         /* Selection & Handles */
-        .selected { outline: 2px solid #ff9900; z-index: 100; }
+        .selected { outline: 2px solid #ff9900 !important; z-index: 100; }
         
-        /* Always show handles if selected OR hovered (even in cursor mode) */
         .selected .resize-handle, 
         .type-text:hover .resize-handle, 
         .type-rect:hover .resize-handle {
@@ -151,50 +143,71 @@
             position: absolute;
             width: 10px; height: 10px;
             background: white; border: 1px solid #ff9900;
-            display: none; /* Hidden by default */
+            display: none; 
             z-index: 101;
         }
 
         /* --- Marquee Box --- */
         #marquee-box {
-            position: fixed; /* Fixed to screen */
+            position: fixed; 
             display: none;
             background-color: rgba(0, 122, 204, 0.1);
-            border: 1px dashed #00d4ff; /* Brighter blue for visibility */
+            border: 1px dashed #00d4ff; 
             z-index: 2000;
-            pointer-events: none; /* Let clicks pass through */
+            pointer-events: none; 
         }
 
         /* --- Properties Panel --- */
         .properties {
-            width: 260px;
+            width: 280px; 
             background: var(--bg-panel);
             border-left: 1px solid var(--border);
             padding: 15px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
             overflow-y: auto;
         }
 
-        .prop-row { display: flex; gap: 10px; }
+        .prop-row { display: flex; gap: 10px; align-items: center; } /* Aligned center for range sliders */
+        .prop-row.inputs-bottom { align-items: flex-end; } /* Align bottom for text inputs */
+        
         .prop-group { flex: 1; display: flex; flex-direction: column; gap: 4px; }
         .prop-group label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
         
-        input, textarea {
+        input[type="number"], textarea {
             background: var(--bg-dark);
             border: 1px solid var(--border);
             color: var(--text);
             padding: 6px;
             border-radius: 3px;
             font-family: inherit;
+            width: 100%;
+            box-sizing: border-box;
         }
-        input:focus, textarea:focus { border-color: var(--accent); outline: none; }
+        input[type="number"]:focus, textarea:focus { border-color: var(--accent); outline: none; }
         textarea { resize: vertical; min-height: 60px; }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        /* Color Picker Styling */
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: 1px solid var(--border);
+            width: 100%;
+            height: 30px;
+            background: none;
+            padding: 0;
+            cursor: pointer;
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; }
 
         .empty-state { color: var(--text-muted); text-align: center; margin-top: 50px; font-style: italic; }
         
-        /* Loader */
         #loader {
             position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999;
             display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;
@@ -252,12 +265,11 @@
         const state = {
             pdf: null,
             scale: 1.5,
-            tool: 'cursor', // cursor, rect, text, link
-            elements: [], // { id, type, page, x, y, w, h, content, target }
+            tool: 'cursor', 
+            elements: [], 
             history: [],
             historyIndex: -1,
-            
-            selections: [], // Array of selected objects { id, element, dom }
+            selections: [], 
             
             isDragging: false,
             isResizing: false,
@@ -304,7 +316,6 @@
             Object.values(ui.btns).forEach(b => b.classList.remove('active'));
             ui.btns[tool].classList.add('active');
             ui.workspace.style.cursor = tool === 'text' ? 'text' : (tool === 'cursor' ? 'default' : 'crosshair');
-            
             if (tool !== 'cursor') clearSelection();
         }
 
@@ -331,8 +342,6 @@
         async function renderPages() {
             ui.sidebar.innerHTML = '';
             ui.workspace.innerHTML = '<div id="loader" class="hidden">Loading PDF...</div><div id="marquee-box"></div>';
-
-            // FIX: Re-cache the marquee box because innerHTML destroyed the old one
             ui.marquee = document.getElementById('marquee-box'); 
 
             for (let i = 1; i <= state.pdf.numPages; i++) {
@@ -390,6 +399,18 @@
             });
         }
 
+        // --- Helper: Hex to RGBA ---
+        function applyOpacity(hex, opacity) {
+            if (!hex || hex === 'transparent' || opacity === 1) return hex;
+            // Strip hash
+            hex = hex.replace('#', '');
+            // Parse hex to rgb
+            let r = parseInt(hex.substring(0, 2), 16);
+            let g = parseInt(hex.substring(2, 4), 16);
+            let b = parseInt(hex.substring(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        }
+
         // --- DOM Creation ---
         function createDOM(el) {
             const div = document.createElement('div');
@@ -401,6 +422,29 @@
             div.style.width = el.w + 'px';
             div.style.height = el.h + 'px';
             div.id = el.id;
+
+            // --- Apply Custom Styles ---
+            if (el.type === 'text') {
+                div.style.fontSize = (el.fontSize || 16) + 'px';
+                div.style.color = (el.color || '#000000');
+                div.style.borderWidth = (el.borderWidth || 0) + 'px';
+                div.style.borderColor = (el.borderColor || 'transparent');
+                div.style.borderStyle = 'solid';
+                
+                // Handle Fill + Opacity
+                const opacity = (el.fillOpacity !== undefined) ? el.fillOpacity : 1;
+                div.style.backgroundColor = applyOpacity(el.fillColor || 'transparent', opacity);
+
+            } else if (el.type === 'rect' || el.type === 'link') {
+                div.style.borderWidth = (el.borderWidth || (el.type === 'rect' ? 2 : 1)) + 'px';
+                div.style.borderColor = (el.borderColor || (el.type === 'rect' ? '#007acc' : '#000000'));
+                div.style.borderStyle = 'solid';
+                
+                // Handle Fill + Opacity
+                const opacity = (el.fillOpacity !== undefined) ? el.fillOpacity : (el.type === 'rect' ? 0.2 : 0);
+                div.style.backgroundColor = applyOpacity(el.fillColor || (el.type === 'rect' ? '#007acc' : 'transparent'), opacity);
+            }
+            // --------------------------
 
             if (el.type === 'text') {
                 div.innerHTML = `<div class="text-content" contenteditable="true">${el.content || '<span class="placeholder">Type here...</span>'}</div>`;
@@ -459,7 +503,6 @@
             const pageNum = parseInt(pageWrapper.dataset.page);
             const rect = pageWrapper.getBoundingClientRect();
 
-            // 1. Check Resize Handle
             if (target.classList.contains('resize-handle')) {
                 const elDiv = target.closest('.annotation');
                 const elData = state.elements.find(x => x.id === elDiv.id);
@@ -470,7 +513,6 @@
                 return;
             }
 
-            // 2. Check Element Click
             const elDiv = target.closest('.annotation');
             if (elDiv) {
                 const id = elDiv.id;
@@ -496,7 +538,6 @@
                 return;
             }
 
-            // 3. Empty Space
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
@@ -509,15 +550,10 @@
         }
 
         function onMouseMove(e) {
-            if (state.isResizing) {
-                updateResize(e);
-            } else if (state.isDragging) {
-                updateDrag(e);
-            } else if (state.isMarquee) {
-                updateMarquee(e);
-            } else if (state.isDrawing) {
-                updateDrawing(e);
-            }
+            if (state.isResizing) updateResize(e);
+            else if (state.isDragging) updateDrag(e);
+            else if (state.isMarquee) updateMarquee(e);
+            else if (state.isDrawing) updateDrawing(e);
         }
 
         function onMouseUp(e) {
@@ -551,9 +587,7 @@
             ui.marquee.style.left = left + 'px';
             ui.marquee.style.top = top + 'px';
 
-            // Collision Detection
             const marqueeRect = { l: left, t: top, r: left + width, b: top + height };
-            
             const allEls = document.querySelectorAll('.annotation');
             allEls.forEach(dom => {
                 const r = dom.getBoundingClientRect();
@@ -561,14 +595,10 @@
                 
                 if (isHit) {
                     const id = dom.id;
-                    if (!state.selections.some(s => s.id === id)) {
-                        addToSelection(id);
-                    }
+                    if (!state.selections.some(s => s.id === id)) addToSelection(id);
                 } else {
                     const id = dom.id;
-                    if (state.selections.some(s => s.id === id)) {
-                        removeFromSelection(id);
-                    }
+                    if (state.selections.some(s => s.id === id)) removeFromSelection(id);
                 }
             });
         }
@@ -694,7 +724,7 @@
             state.drawStart = { x, y };
             state.drawPage = page;
             
-            const newEl = {
+            const defaults = {
                 id: 'el-' + Date.now(),
                 type: state.tool,
                 page: page,
@@ -703,13 +733,33 @@
                 content: '',
                 target: 1
             };
-            state.elements.push(newEl);
+
+            if (state.tool === 'text') {
+                defaults.fontSize = 16;
+                defaults.color = '#000000';
+                defaults.borderWidth = 0;
+                defaults.borderColor = 'transparent';
+                defaults.fillColor = 'transparent';
+                defaults.fillOpacity = 1;
+            } else if (state.tool === 'rect') {
+                defaults.borderWidth = 2;
+                defaults.borderColor = '#007acc';
+                defaults.fillColor = '#007acc'; // Now stored as Hex
+                defaults.fillOpacity = 0.2;     // Opacity stored separately
+            } else if (state.tool === 'link') {
+                defaults.borderWidth = 1;
+                defaults.borderColor = '#000000';
+                defaults.fillColor = '#ffffff';
+                defaults.fillOpacity = 0;
+            }
+
+            state.elements.push(defaults);
             
             const wrapper = document.querySelector(`.page[data-page="${page}"]`);
-            wrapper.appendChild(createDOM(newEl));
+            wrapper.appendChild(createDOM(defaults));
             
-            state.currentDrawId = newEl.id;
-            selectElement(newEl.id); 
+            state.currentDrawId = defaults.id;
+            selectElement(defaults.id); 
         }
 
         function updateDrawing(e) {
@@ -758,7 +808,7 @@
             pushHistory();
         }
 
-        // --- Properties Panel ---
+        // --- Properties Panel (Extended) ---
         function renderPropPanel() {
             const panel = ui.props;
             panel.innerHTML = '';
@@ -775,18 +825,53 @@
 
             const el = state.selections[0].element;
 
+            // 1. Geometry
             panel.innerHTML += `
-                <div class="prop-row">
+                <div class="prop-row inputs-bottom">
                     <div class="prop-group"><label>X</label><input type="number" id="prop-x" value="${Math.round(el.x)}"></div>
                     <div class="prop-group"><label>Y</label><input type="number" id="prop-y" value="${Math.round(el.y)}"></div>
                 </div>
-                <div class="prop-row">
+                <div class="prop-row inputs-bottom">
                     <div class="prop-group"><label>W</label><input type="number" id="prop-w" value="${Math.round(el.w)}"></div>
                     <div class="prop-group"><label>H</label><input type="number" id="prop-h" value="${Math.round(el.h)}"></div>
                 </div>
             `;
 
+            // 2. Style Properties
             if (el.type === 'text') {
+                panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
+                
+                panel.innerHTML += `
+                    <div class="prop-row inputs-bottom">
+                        <div class="prop-group"><label>Font Size</label><input type="number" id="prop-fs" value="${el.fontSize || 16}"></div>
+                        <div class="prop-group"><label>Text Color</label><input type="color" id="prop-tc" value="${el.color || '#000000'}"></div>
+                    </div>
+                `;
+            }
+            if (['rect', 'link', 'text'].includes(el.type)) {
+                panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
+                
+                // Border
+                panel.innerHTML += `
+                    <div class="prop-row inputs-bottom">
+                        <div class="prop-group"><label>Border Width</label><input type="number" id="prop-bw" value="${el.borderWidth || 0}"></div>
+                        <div class="prop-group"><label>Border Color</label><input type="color" id="prop-bc" value="${hexFromStyle(el.borderColor, (el.type === 'rect' ? '#007acc' : '#000000'))}"></div>
+                    </div>
+                `;
+                
+                // Fill Color
+                const defaultFill = (el.type === 'rect' ? '#007acc' : (el.type === 'link' ? '#ffffff' : '#ffffff'));
+                panel.innerHTML += `
+                    <div class="prop-row inputs-bottom">
+                         <div class="prop-group"><label>Fill Color</label><input type="color" id="prop-fc" value="${hexFromStyle(el.fillColor, defaultFill)}"></div>
+                         <div class="prop-group"><label>Fill Opacity</label><input type="range" id="prop-fo" min="0" max="1" step="0.05" value="${el.fillOpacity !== undefined ? el.fillOpacity : (el.type === 'rect' ? 0.2 : 0)}"></div>
+                    </div>
+                `;
+            }
+
+            // 3. Specific Properties
+            if (el.type === 'text') {
+                panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
                 panel.innerHTML += `
                     <div class="prop-group">
                         <label>Content</label>
@@ -795,6 +880,7 @@
                 `;
             }
             if (el.type === 'link') {
+                panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
                 panel.innerHTML += `
                     <div class="prop-group">
                         <label>Target Page</label>
@@ -803,6 +889,7 @@
                 `;
             }
 
+            // 4. Actions
             const btn = document.createElement('button');
             btn.style.background = '#d94444';
             btn.style.color = 'white';
@@ -811,32 +898,95 @@
             btn.onclick = deleteSelections;
             panel.appendChild(btn);
 
-            ['x', 'y', 'w', 'h'].forEach(k => {
-                document.getElementById(`prop-${k}`).addEventListener('input', (e) => {
-                    el[k] = parseFloat(e.target.value);
-                    const dom = document.getElementById(state.selections[0].id);
-                    if (dom) {
-                        if (k === 'x') dom.style.left = el[k] + 'px';
-                        if (k === 'y') dom.style.top = el[k] + 'px';
-                        if (k === 'w' || k === 'h') dom.style[k === 'w' ? 'width' : 'height'] = el[k] + 'px';
-                    }
-                });
-                document.getElementById(`prop-${k}`).addEventListener('change', pushHistory);
-            });
+            bindGeometryEvents();
+            
+            if (el.type === 'text') {
+                bindStyleEvents('fs', 'fontSize', 'px');
+                bindColorEvents('tc', 'color');
+            }
+            if (['rect', 'link', 'text'].includes(el.type)) {
+                bindStyleEvents('bw', 'borderWidth', 'px');
+                bindColorEvents('bc', 'borderColor');
+                bindColorEvents('fc', 'fillColor');
+                bindOpacityEvents('fo', 'fillOpacity');
+            }
 
             if (el.type === 'text') {
-                document.getElementById('prop-text').addEventListener('input', (e) => {
+                const t = document.getElementById('prop-text');
+                t.addEventListener('input', (e) => {
                     el.content = e.target.value;
                     const dom = document.querySelector(`#${el.id} .text-content`);
                     if (dom) dom.innerText = e.target.value;
                 });
             }
             if (el.type === 'link') {
-                document.getElementById('prop-page').addEventListener('change', (e) => {
+                const p = document.getElementById('prop-page');
+                p.addEventListener('change', (e) => {
                     el.target = parseInt(e.target.value);
                     pushHistory();
                 });
             }
+        }
+
+        // Helper to bind generic style changes
+        function bindStyleEvents(idSuffix, prop, unit) {
+            const input = document.getElementById(`prop-${idSuffix}`);
+            if (!input) return;
+            input.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                state.selections[0].element[prop] = val;
+                state.selections[0].dom.style[prop] = val + unit;
+            });
+            input.addEventListener('change', pushHistory);
+        }
+
+        function bindColorEvents(idSuffix, prop) {
+            const input = document.getElementById(`prop-${idSuffix}`);
+            if (!input) return;
+            input.addEventListener('input', (e) => {
+                const val = e.target.value;
+                state.selections[0].element[prop] = val;
+                // If changing fill color, we need to re-apply opacity
+                if (prop === 'fillColor') {
+                    const el = state.selections[0].element;
+                    const op = el.fillOpacity !== undefined ? el.fillOpacity : 1;
+                    state.selections[0].dom.style.backgroundColor = applyOpacity(val, op);
+                } else {
+                    state.selections[0].dom.style[prop] = val;
+                }
+            });
+            input.addEventListener('change', pushHistory);
+        }
+
+        function bindOpacityEvents(idSuffix, prop) {
+            const input = document.getElementById(`prop-${idSuffix}`);
+            if (!input) return;
+            input.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                state.selections[0].element[prop] = val;
+                
+                // Re-calculate background color with new opacity
+                const el = state.selections[0].element;
+                const color = el.fillColor || (el.type === 'rect' ? '#007acc' : '#ffffff');
+                state.selections[0].dom.style.backgroundColor = applyOpacity(color, val);
+            });
+            input.addEventListener('change', pushHistory);
+        }
+
+        function bindGeometryEvents() {
+            ['x', 'y', 'w', 'h'].forEach(k => {
+                const input = document.getElementById(`prop-${k}`);
+                if (!input) return;
+                input.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    state.selections[0].element[k] = val;
+                    const dom = state.selections[0].dom;
+                    if (k === 'x') dom.style.left = val + 'px';
+                    if (k === 'y') dom.style.top = val + 'px';
+                    if (k === 'w' || k === 'h') dom.style[k === 'w' ? 'width' : 'height'] = val + 'px';
+                });
+                input.addEventListener('change', pushHistory);
+            });
         }
 
         function updatePropInputs(el) {
@@ -848,6 +998,18 @@
             setVal('prop-y', el.y);
             setVal('prop-w', el.w);
             setVal('prop-h', el.h);
+        }
+
+        // Helper: Convert rgba/rgb to Hex for the input[type="color"]
+        function hexFromStyle(colorStr, defaultHex) {
+            if (!colorStr || colorStr === 'transparent') return defaultHex;
+            if (colorStr.startsWith('#')) return colorStr;
+            
+            const rgb = colorStr.match(/\d+/g);
+            if (rgb && rgb.length >= 3) {
+                return "#" + ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1);
+            }
+            return defaultHex;
         }
 
         function deleteSelections() {
