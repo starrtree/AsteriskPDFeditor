@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Web PDF Editor (Clean Links)</title>
+    <title>2D Web PDF Editor (Professional)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -58,11 +58,16 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
+            display: flex; align-items: center; gap: 6px;
         }
         button:hover { background: rgba(255,255,255,0.1); }
         button.active { background: var(--accent); color: white; }
 
         .separator { width: 1px; height: 20px; background: var(--border); margin: 0 10px; }
+
+        /* Zoom Slider */
+        .zoom-control { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+        input[type=range].zoom-slider { width: 80px; cursor: pointer; }
 
         /* --- Main Layout --- */
         main { display: flex; flex: 1; overflow: hidden; }
@@ -76,9 +81,27 @@
             display: flex;
             flex-direction: column;
         }
-        .thumb { margin: 10px; cursor: pointer; opacity: 0.6; text-align: center; }
-        .thumb:hover, .thumb.active { opacity: 1; border: 2px solid var(--accent); }
-        .thumb canvas { max-width: 100%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+        .thumb { 
+            margin: 10px; 
+            cursor: grab; 
+            opacity: 0.6; 
+            text-align: center; 
+            border: 2px solid transparent;
+            transition: transform 0.2s, opacity 0.2s;
+            background: var(--bg-dark);
+            padding: 5px;
+            border-radius: 4px;
+            position: relative;
+        }
+        .thumb:hover { opacity: 1; }
+        .thumb.active { opacity: 1; border-color: var(--accent); }
+        
+        /* Dragging States */
+        .thumb.dragging { opacity: 0.5; transform: scale(0.95); cursor: grabbing; }
+        .thumb.drag-over { border-color: var(--accent); opacity: 0.8; border-style: dashed; }
+
+        .thumb canvas { max-width: 100%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); pointer-events: none; }
+        .thumb-page-num { font-size: 10px; text-align: center; margin-top: 4px; color: var(--text-muted); pointer-events: none; }
 
         /* --- Workspace --- */
         .workspace {
@@ -96,6 +119,7 @@
         .page {
             position: relative;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: width 0.2s, height 0.2s; /* Smooth zoom */
         }
 
         /* --- Annotations --- */
@@ -120,11 +144,7 @@
             align-items: center;
         }
         
-        /* Link Specifics */
-        .type-link .text-content {
-            color: blue; 
-            text-decoration: underline; 
-        }
+        .type-link .text-content { color: blue; text-decoration: underline; }
         
         .type-text:hover, .type-rect:hover, .type-link:hover { border-style: dashed !important; border-color: #888 !important; }
         
@@ -216,6 +236,18 @@
             position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999;
             display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;
         }
+
+        /* Modal */
+        #modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 10000;
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal {
+            background: var(--bg-panel); padding: 20px; border-radius: 5px; width: 300px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .modal h3 { margin-top: 0; color: white; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
         .hidden { display: none !important; }
 
     </style>
@@ -224,11 +256,14 @@
 
     <header>
         <div class="brand">
-            <i class="fas fa-file-pdf"></i> PDF Editor
+            <i class="fas fa-file-pdf"></i> PDF Editor Pro
         </div>
         <div class="toolbar">
             <button onclick="document.getElementById('file-in').click()">Open PDF</button>
             <input type="file" id="file-in" class="hidden" accept=".pdf">
+            
+            <button onclick="document.getElementById('file-insert').click()">Insert PDF</button>
+            <input type="file" id="file-insert" class="hidden" accept=".pdf">
             
             <div class="separator"></div>
             
@@ -246,13 +281,26 @@
             
             <button onclick="app.exportData()">Save JSON</button>
         </div>
-        <div style="color: var(--text-muted); font-size: 12px;">
-            <span id="page-num">Page 1</span>
+        <div style="display:flex; align-items:center; gap:15px;">
+            <div class="zoom-control">
+                <i class="fas fa-search-minus" onclick="adjustZoom(-0.1)" style="cursor:pointer"></i>
+                <input type="range" min="0.5" max="3.0" step="0.1" value="1.0" class="zoom-slider" id="zoom-slider">
+                <i class="fas fa-search-plus" onclick="adjustZoom(0.1)" style="cursor:pointer"></i>
+                <span id="zoom-label" style="width: 35px">100%</span>
+            </div>
+            <div style="color: var(--text-muted); font-size: 12px; min-width: 60px; text-align:right;">
+                <span id="page-num">Page 1</span>
+            </div>
         </div>
     </header>
 
     <main>
-        <div class="sidebar" id="sidebar"></div>
+        <div class="sidebar" id="sidebar">
+            <div style="padding: 10px; color: var(--text-muted); font-size: 11px; text-align: center;">
+                Drag pages to reorder
+            </div>
+            <div id="thumb-container" style="display: flex; flex-direction: column; gap: 10px; padding: 10px;"></div>
+        </div>
         
         <div class="workspace" id="workspace">
             <div id="loader" class="hidden">Loading PDF...</div>
@@ -264,13 +312,33 @@
         </div>
     </main>
 
+    <!-- Insert PDF Modal -->
+    <div id="modal-overlay">
+        <div class="modal">
+            <h3>Insert PDF</h3>
+            <div class="prop-group">
+                <label>Insert After Page #</label>
+                <input type="number" id="insert-page-num" value="1" min="1">
+            </div>
+            <div class="empty-state" style="margin-top: 10px; margin-bottom: 10px;">Pages will be inserted at the selected position.</div>
+            <div class="modal-actions">
+                <button onclick="closeModal()">Cancel</button>
+                <button style="background: var(--accent); color: white;" onclick="confirmInsert()">Insert</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // --- Registry for PDF Documents (Required for robust Undo/Redo) ---
+        const docRegistry = {}; 
+
         // --- State Management ---
         const state = {
-            pdf: null,
-            scale: 1.5,
+            pages: [], // Array of { pdfDocRef (string), pageIndex (int), id (unique string) }
+            totalVisualPages: 0,
+            scale: 1.0, // Default zoom
             tool: 'cursor', 
-            elements: [], 
+            elements: [], // Flat array of elements
             history: [],
             historyIndex: -1,
             selections: [], 
@@ -283,17 +351,27 @@
             
             startPos: { x: 0, y: 0 },
             initialEls: [], 
-            marqueeStart: { x: 0, y: 0 } 
+            marqueeStart: { x: 0, y: 0 },
+            
+            tempInsertPdf: null,
+            tempInsertPageCount: 0,
+            
+            draggedPageVisualIndex: null
         };
 
         // --- DOM Cache ---
         const ui = {
             workspace: document.getElementById('workspace'),
             sidebar: document.getElementById('sidebar'),
+            thumbContainer: document.getElementById('thumb-container'),
             props: document.getElementById('prop-panel'),
             pageLabel: document.getElementById('page-num'),
             loader: document.getElementById('loader'),
             marquee: document.getElementById('marquee-box'),
+            modal: document.getElementById('modal-overlay'),
+            insertInput: document.getElementById('insert-page-num'),
+            zoomSlider: document.getElementById('zoom-slider'),
+            zoomLabel: document.getElementById('zoom-label'),
             btns: {
                 cursor: document.getElementById('btn-cursor'),
                 rect: document.getElementById('btn-rect'),
@@ -303,11 +381,20 @@
         };
 
         // --- Initialization ---
-        document.getElementById('file-in').addEventListener('change', loadPDF);
+        document.getElementById('file-in').addEventListener('change', (e) => loadPDF(e.target.files[0], true));
+        document.getElementById('file-insert').addEventListener('change', (e) => prepareInsert(e.target.files[0]));
         
+        // Zoom Listener
+        ui.zoomSlider.addEventListener('input', (e) => {
+            state.scale = parseFloat(e.target.value);
+            ui.zoomLabel.innerText = Math.round(state.scale * 100) + '%';
+            debouncedRender();
+        });
+
         window.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
+        ui.workspace.addEventListener('scroll', checkPageVisible); // Update page num on scroll
         
         window.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') undo();
@@ -323,18 +410,63 @@
             if (tool !== 'cursor') clearSelection();
         }
 
+        function adjustZoom(delta) {
+            let newScale = parseFloat((state.scale + delta).toFixed(1));
+            if(newScale < 0.5) newScale = 0.5;
+            if(newScale > 3.0) newScale = 3.0;
+            state.scale = newScale;
+            ui.zoomSlider.value = newScale;
+            ui.zoomLabel.innerText = Math.round(newScale * 100) + '%';
+            debouncedRender();
+        }
+
+        // Debounce render to prevent lag on zoom drag
+        let renderTimeout;
+        function debouncedRender() {
+            clearTimeout(renderTimeout);
+            renderTimeout = setTimeout(() => {
+                renderAllPages();
+            }, 100);
+        }
+
         // --- PDF Logic ---
-        async function loadPDF(e) {
-            const file = e.target.files[0];
+
+        async function loadPDF(file, reset = false) {
             if (!file) return;
             ui.loader.classList.remove('hidden');
 
             try {
                 const buffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument(buffer).promise;
-                state.pdf = pdf;
-                state.elements = []; 
-                await renderPages();
+                
+                // Register this document instance so we can find it again after Undo
+                const docRefId = 'doc-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                pdf.refId = docRefId;
+                docRegistry[docRefId] = pdf;
+
+                if (reset) {
+                    state.pages = [];
+                    state.elements = []; 
+                    state.history = [];
+                    state.historyIndex = -1;
+                }
+
+                const numPages = pdf.numPages;
+
+                for (let i = 1; i <= numPages; i++) {
+                    state.pages.push({
+                        pdfDocRef: docRefId, // Store reference string, not heavy object
+                        pageIndex: i,
+                        id: `page-${Date.now()}-${i}` // Unique ID for this specific visual page
+                    });
+                }
+
+                await renderAllPages();
+                
+                if (reset) {
+                    pushHistory(); 
+                }
+                
             } catch(err) {
                 alert("Error loading PDF");
                 console.error(err);
@@ -343,64 +475,246 @@
             }
         }
 
-        async function renderPages() {
-            ui.sidebar.innerHTML = '';
-            ui.workspace.innerHTML = '<div id="loader" class="hidden">Loading PDF...</div><div id="marquee-box"></div>';
-            ui.marquee = document.getElementById('marquee-box'); 
+        // --- Insert PDF Logic ---
 
-            for (let i = 1; i <= state.pdf.numPages; i++) {
-                const page = await state.pdf.getPage(i);
-                const viewport = page.getViewport({ scale: state.scale });
+        async function prepareInsert(file) {
+            if (!file) return;
+            ui.loader.classList.remove('hidden');
+            
+            try {
+                const buffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(buffer).promise;
+                const docRefId = 'ins-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                pdf.refId = docRefId;
+                docRegistry[docRefId] = pdf;
+
+                state.tempInsertPdf = { refId: docRefId, doc: pdf };
+                state.tempInsertPageCount = pdf.numPages;
                 
-                const wrapper = document.createElement('div');
-                wrapper.className = 'page';
-                wrapper.style.width = `${viewport.width}px`;
-                wrapper.style.height = `${viewport.height}px`;
-                wrapper.dataset.page = i;
+                ui.loader.classList.add('hidden');
+                
+                ui.insertInput.value = state.totalVisualPages; 
+                ui.insertInput.max = state.totalVisualPages; 
+                ui.modal.style.display = 'flex';
+                
+            } catch(err) {
+                alert("Error preparing insertion");
+                ui.loader.classList.add('hidden');
+            }
+        }
 
-                const canvas = document.createElement('canvas');
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
-                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                wrapper.appendChild(canvas);
+        function closeModal() {
+            ui.modal.style.display = 'none';
+            state.tempInsertPdf = null;
+            document.getElementById('file-insert').value = ''; 
+        }
 
-                ui.workspace.appendChild(wrapper);
+        async function confirmInsert() {
+            const insertIndex = parseInt(ui.insertInput.value) - 1; // Convert to 0-based index
+            if (isNaN(insertIndex) || insertIndex < 0) insertAt = 0;
 
-                state.elements.filter(el => el.page === i).forEach(el => {
-                    wrapper.appendChild(createDOM(el));
+            ui.modal.style.display = 'none';
+            ui.loader.classList.remove('hidden');
+
+            const { refId, doc } = state.tempInsertPdf;
+            const count = state.tempInsertPageCount;
+
+            // Create new page entries
+            const newPageEntries = [];
+            for (let i = 1; i <= count; i++) {
+                newPageEntries.push({
+                    pdfDocRef: refId,
+                    pageIndex: i,
+                    id: `page-${Date.now()}-${i}`
                 });
-
-                const thumb = document.createElement('div');
-                thumb.className = `thumb ${i === 1 ? 'active' : ''}`;
-                thumb.onclick = () => document.querySelector(`.page[data-page="${i}"]`).scrollIntoView({ block: 'center' });
-                
-                const thumbCanvas = document.createElement('canvas');
-                const thumbVp = page.getViewport({ scale: 0.15 });
-                thumbCanvas.width = thumbVp.width;
-                thumbCanvas.height = thumbVp.height;
-                await page.render({ canvasContext: thumbCanvas.getContext('2d'), viewport: thumbVp }).promise;
-                
-                thumb.appendChild(thumbCanvas);
-                thumb.appendChild(document.createElement('br'));
-                thumb.appendChild(document.createTextNode(`Page ${i}`));
-                ui.sidebar.appendChild(thumb);
             }
 
-            ui.workspace.addEventListener('scroll', checkPageVisible);
+            // Insert into state.pages array
+            state.pages.splice(insertIndex, 0, ...newPageEntries);
+            
+            await renderAllPages();
+            ui.loader.classList.add('hidden');
+            
+            state.tempInsertPdf = null;
+            document.getElementById('file-insert').value = '';
+            pushHistory();
+        }
+
+        // --- Rendering ---
+        
+        // Helper to preserve scroll
+        let savedScrollTop = 0;
+
+        async function renderAllPages() {
+            savedScrollTop = ui.workspace.scrollTop;
+            state.totalVisualPages = state.pages.length;
+            ui.thumbContainer.innerHTML = '';
+            
+            // Keep the marquee and loader
+            ui.workspace.innerHTML = '<div id="loader" class="hidden">Loading PDF...</div><div id="marquee-box"></div>';
+            ui.marquee = document.getElementById('marquee-box');
+
+            const promises = [];
+            
+            for (let i = 0; i < state.pages.length; i++) {
+                const pageRef = state.pages[i];
+                // Get actual pdf object from registry
+                const pdfDoc = docRegistry[pageRef.pdfDocRef];
+                if(pdfDoc) {
+                    promises.push(renderSinglePage(i + 1, pageRef, pdfDoc));
+                }
+            }
+
+            try {
+                const results = await Promise.all(promises);
+                results.forEach(res => {
+                    ui.thumbContainer.appendChild(res.thumb);
+                    ui.workspace.appendChild(res.dom);
+                });
+                
+                // Restore Scroll
+                ui.workspace.scrollTop = savedScrollTop;
+                
+                checkPageVisible();
+            } catch (e) {
+                console.error("Render Error", e);
+            }
+        }
+
+        async function renderSinglePage(visualNum, pageRef, pdfDoc) {
+            const page = await pdfDoc.getPage(pageRef.pageIndex);
+            const viewport = page.getViewport({ scale: state.scale });
+            
+            // 1. Main Page Wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = 'page';
+            wrapper.style.width = `${viewport.width}px`;
+            wrapper.style.height = `${viewport.height}px`;
+            wrapper.dataset.pageId = pageRef.id; // Use ID, not number
+            wrapper.dataset.visualNum = visualNum; // Keep number for display logic
+
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            wrapper.appendChild(canvas);
+
+            // 2. Render Annotations for this page ID (Changed from number to ID)
+            const pageElements = state.elements.filter(el => el.pageId === pageRef.id);
+            pageElements.forEach(el => {
+                wrapper.appendChild(createDOM(el));
+            });
+
+            // 3. Thumbnail
+            const thumb = document.createElement('div');
+            thumb.className = 'thumb';
+            thumb.draggable = true;
+            thumb.dataset.visualIndex = visualNum - 1;
+            
+            // Highlight current page
+            const currentPageId = ui.pageLabel.getAttribute('data-active-id');
+            if (currentPageId === pageRef.id) thumb.classList.add('active');
+            else thumb.classList.remove('active');
+
+            thumb.onclick = (e) => {
+                if(state.draggedPageVisualIndex === null) {
+                    const wrapper = document.querySelector(`.page[data-page-id="${pageRef.id}"]`);
+                    if(wrapper) wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            };
+            
+            // Drag Events
+            thumb.addEventListener('dragstart', (e) => {
+                state.draggedPageVisualIndex = parseInt(thumb.dataset.visualIndex);
+                thumb.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                // Set data for firefox compatibility
+                e.dataTransfer.setData('text/plain', thumb.dataset.visualIndex);
+            });
+            
+            thumb.addEventListener('dragend', () => {
+                thumb.classList.remove('dragging');
+                state.draggedPageVisualIndex = null;
+                Array.from(ui.thumbContainer.children).forEach(c => c.classList.remove('drag-over'));
+            });
+
+            thumb.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+            
+            thumb.addEventListener('dragenter', (e) => {
+                e.preventDefault();
+                thumb.classList.add('drag-over');
+            });
+            
+            thumb.addEventListener('dragleave', () => {
+                thumb.classList.remove('drag-over');
+            });
+
+            thumb.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const fromIndex = state.draggedPageVisualIndex;
+                const toIndex = parseInt(thumb.dataset.visualIndex);
+                if (fromIndex !== null && fromIndex !== toIndex) {
+                    movePage(fromIndex, toIndex);
+                }
+            });
+
+            const thumbCanvas = document.createElement('canvas');
+            const thumbVp = page.getViewport({ scale: 0.15 }); // Thumbnail scale constant
+            thumbCanvas.width = thumbVp.width;
+            thumbCanvas.height = thumbVp.height;
+            await page.render({ canvasContext: thumbCanvas.getContext('2d'), viewport: thumbVp }).promise;
+            
+            thumb.appendChild(thumbCanvas);
+            thumb.appendChild(document.createElement('br'));
+            const label = document.createElement('div');
+            label.className = 'thumb-page-num';
+            label.innerText = `Page ${visualNum}`;
+            thumb.appendChild(label);
+            
+            return { dom: wrapper, thumb: thumb };
         }
 
         function checkPageVisible() {
             const center = ui.workspace.getBoundingClientRect().top + (ui.workspace.clientHeight / 2);
             const pages = document.querySelectorAll('.page');
+            let found = false;
             pages.forEach(p => {
                 const r = p.getBoundingClientRect();
                 if (r.top <= center && r.bottom >= center) {
-                    ui.pageLabel.innerText = `Page ${p.dataset.page}`;
-                    document.querySelector('.thumb.active')?.classList.remove('active');
-                    const thumbs = Array.from(ui.sidebar.children);
-                    thumbs.forEach(t => { if (t.innerText.includes(p.dataset.page)) t.classList.add('active'); });
+                    const pageNum = parseInt(p.dataset.visualNum);
+                    const pageId = p.dataset.pageId;
+                    
+                    if (state.currentPage !== pageNum) {
+                        state.currentPage = pageNum;
+                        ui.pageLabel.innerText = `Page ${pageNum}`;
+                        ui.pageLabel.setAttribute('data-active-id', pageId);
+                        
+                        // Update Sidebar Highlight
+                        document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
+                        // Find thumb with matching visual index logic
+                        const thumbs = Array.from(ui.thumbContainer.children);
+                        if(thumbs[pageNum-1]) thumbs[pageNum-1].classList.add('active');
+                        
+                        found = true;
+                    }
                 }
             });
+        }
+
+        // --- Page Reordering Logic (Improved) ---
+        function movePage(fromIndex, toIndex) {
+            // 1. Move the page object in the array
+            // We use Splice: Remove from 'from', Insert at 'to'
+            const pageToMove = state.pages[fromIndex];
+            state.pages.splice(fromIndex, 1);
+            state.pages.splice(toIndex, 0, pageToMove);
+
+            // 2. Re-render
+            renderAllPages();
+            pushHistory();
         }
 
         // --- Helper: Hex to RGBA ---
@@ -425,7 +739,6 @@
             div.style.height = el.h + 'px';
             div.id = el.id;
 
-            // --- Apply Custom Styles ---
             if (el.type === 'text' || el.type === 'link') {
                 div.style.fontSize = (el.fontSize || 16) + 'px';
                 div.style.color = (el.color || (el.type === 'link' ? 'blue' : '#000000'));
@@ -443,14 +756,9 @@
                 const opacity = (el.fillOpacity !== undefined) ? el.fillOpacity : (el.type === 'rect' ? 0.2 : 0);
                 div.style.backgroundColor = applyOpacity(el.fillColor || (el.type === 'rect' ? '#007acc' : 'transparent'), opacity);
             }
-            // --------------------------
 
-            // Text & Link Content Logic
             if (el.type === 'text' || el.type === 'link') {
-                // LINKS ARE NOW EMPTY BY DEFAULT, TEXT HAS PLACEHOLDER
                 let displayContent = el.content;
-                
-                // Only show "Type here..." for Text elements if content is missing
                 if (el.type === 'text' && (!displayContent || displayContent.trim() === '')) {
                     displayContent = '<span class="placeholder">Type here...</span>';
                 }
@@ -463,7 +771,6 @@
                 });
                 content.addEventListener('blur', () => {
                     el.content = content.innerText;
-                    // Only restore placeholder for TEXT elements
                     if (el.type === 'text' && (!el.content || el.content.trim() === '')) {
                         content.innerHTML = '<span class="placeholder">Type here...</span>';
                     }
@@ -487,8 +794,12 @@
                     if (el.linkType === 'url') {
                         window.open(el.targetUrl, '_blank');
                     } else {
-                        const target = document.querySelector(`.page[data-page="${el.targetPage}"]`);
-                        if (target) target.scrollIntoView({ block: 'center' });
+                        // Find visual index of target page ID
+                        const targetIdx = state.pages.findIndex(p => p.id === el.targetPageId);
+                        if(targetIdx > -1) {
+                            const wrapper = document.querySelectorAll('.page')[targetIdx];
+                            if(wrapper) wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
                     }
                 };
             }
@@ -515,7 +826,8 @@
             const pageWrapper = target.closest('.page');
             if (!pageWrapper) return;
 
-            const pageNum = parseInt(pageWrapper.dataset.page);
+            // Use Page ID now
+            const pageId = pageWrapper.dataset.pageId;
             const rect = pageWrapper.getBoundingClientRect();
 
             if (target.classList.contains('resize-handle')) {
@@ -560,7 +872,7 @@
                 startMarquee(e);
                 clearSelection(); 
             } else if (['rect', 'link', 'text'].includes(state.tool)) {
-                startDrawing(e, pageNum, x, y);
+                startDrawing(e, pageId, x, y);
             }
         }
 
@@ -734,19 +1046,18 @@
         }
 
         // --- Drawing Logic ---
-        function startDrawing(e, page, x, y) {
+        function startDrawing(e, pageId, x, y) {
             state.isDrawing = true;
             state.drawStart = { x, y };
-            state.drawPage = page;
+            state.drawPageId = pageId; // Use Page ID
             
             const defaults = {
                 id: 'el-' + Date.now(),
                 type: state.tool,
-                page: page,
+                pageId: pageId, // Changed from 'page' to 'pageId'
                 x: x, y: y,
                 w: 0, h: 0,
-                content: '',
-                target: 1
+                content: ''
             };
 
             if (state.tool === 'text') {
@@ -769,27 +1080,31 @@
                 defaults.fillColor = 'transparent';
                 defaults.fillOpacity = 0;
                 defaults.linkType = 'page'; 
-                defaults.targetPage = 1;
+                defaults.targetPageId = pageId; // Default link to same page
                 defaults.targetUrl = 'https://';
-                defaults.content = ''; // CHANGED: Empty by default
+                defaults.content = ''; 
             }
 
             state.elements.push(defaults);
             
-            const wrapper = document.querySelector(`.page[data-page="${page}"]`);
-            wrapper.appendChild(createDOM(defaults));
-            
-            state.currentDrawId = defaults.id;
-            selectElement(defaults.id); 
+            const wrapper = document.querySelector(`.page[data-page-id="${pageId}"]`);
+            if(wrapper) {
+                wrapper.appendChild(createDOM(defaults));
+                state.currentDrawId = defaults.id;
+                selectElement(defaults.id); 
+            }
         }
 
         function updateDrawing(e) {
-            const wrapper = document.querySelector(`.page[data-page="${state.drawPage}"]`);
+            const wrapper = document.querySelector(`.page[data-page-id="${state.drawPageId}"]`);
+            if(!wrapper) return;
             const rect = wrapper.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             
             const el = state.elements.find(x => x.id === state.currentDrawId);
+            if(!el) return;
+
             const sx = state.drawStart.x;
             const sy = state.drawStart.y;
 
@@ -819,17 +1134,15 @@
             
             if (el.w < 5 && el.h < 5 && el.type !== 'text' && el.type !== 'link') {
                 state.elements = state.elements.filter(x => x.id !== el.id);
-                document.getElementById(el.id).remove();
+                const dom = document.getElementById(el.id);
+                if(dom) dom.remove();
                 clearSelection();
             } else if (el.type === 'text' || el.type === 'link') {
-                // Don't auto-focus empty links to keep them clean. 
-                // But if user wants to type, they can click it.
-                // However, for usability, let's focus it if it's a Text box, 
-                // but maybe not for a Link box since it's empty.
-                // Actually, consistent UX: always focus contenteditable on creation so they can type immediately.
                 const dom = document.getElementById(el.id);
-                const content = dom.querySelector('.text-content');
-                setTimeout(() => content.focus(), 0);
+                if(dom) {
+                    const content = dom.querySelector('.text-content');
+                    setTimeout(() => content.focus(), 0);
+                }
             }
             pushHistory();
         }
@@ -918,10 +1231,14 @@
                 `;
 
                 if (currentType === 'page') {
+                    // Get visual page number from ID
+                    const targetIdx = state.pages.findIndex(p => p.id === el.targetPageId);
+                    const visualNum = targetIdx > -1 ? targetIdx + 1 : 1;
+                    
                     panel.innerHTML += `
                         <div class="prop-group" id="prop-page-group">
                             <label>Target Page</label>
-                            <input type="number" id="prop-page" value="${el.targetPage || 1}">
+                            <input type="number" id="prop-page" value="${visualNum}" min="1" max="${state.pages.length}">
                         </div>
                     `;
                 } else {
@@ -964,11 +1281,7 @@
                     const dom = document.querySelector(`#${el.id} .text-content`);
                     if (dom) dom.innerText = e.target.value;
                 });
-                // Sync textarea to internal state on change (blur)
-                t.addEventListener('change', () => {
-                   // Data is already synced on input
-                   pushHistory(); 
-                });
+                t.addEventListener('change', () => { pushHistory(); });
             }
 
             if (el.type === 'link') {
@@ -983,8 +1296,11 @@
                 if (el.linkType === 'page') {
                     const p = document.getElementById('prop-page');
                     p.addEventListener('change', (e) => {
-                        el.targetPage = parseInt(e.target.value);
-                        pushHistory();
+                        const visualNum = parseInt(e.target.value) - 1;
+                        if(state.pages[visualNum]) {
+                            el.targetPageId = state.pages[visualNum].id;
+                            pushHistory();
+                        }
                     });
                 } else {
                     const u = document.getElementById('prop-url');
@@ -1087,12 +1403,23 @@
             pushHistory();
         }
 
-        // --- History ---
+        // --- History (Fixed for PDF.js Objects) ---
         function pushHistory() {
             if (state.historyIndex < state.history.length - 1) {
                 state.history = state.history.slice(0, state.historyIndex + 1);
             }
-            state.history.push(JSON.parse(JSON.stringify(state.elements)));
+            
+            // Create a lightweight snapshot of pages (only IDs and Refs, not the heavy object)
+            const pagesSnapshot = state.pages.map(p => ({
+                id: p.id,
+                pdfDocRef: p.pdfDocRef,
+                pageIndex: p.pageIndex
+            }));
+
+            // Deep clone elements (safe)
+            const elementsSnapshot = JSON.parse(JSON.stringify(state.elements));
+
+            state.history.push({ pages: pagesSnapshot, elements: elementsSnapshot });
             state.historyIndex++;
             if (state.history.length > 20) {
                 state.history.shift();
@@ -1103,36 +1430,40 @@
         function undo() {
             if (state.historyIndex <= 0) return;
             state.historyIndex--;
-            state.elements = JSON.parse(JSON.stringify(state.history[state.historyIndex]));
-            refreshAll();
-            clearSelection();
+            restoreState(state.history[state.historyIndex]);
         }
 
         function redo() {
             if (state.historyIndex >= state.history.length - 1) return;
             state.historyIndex++;
-            state.elements = JSON.parse(JSON.stringify(state.history[state.historyIndex]));
+            restoreState(state.history[state.historyIndex]);
+        }
+
+        function restoreState(data) {
+            // Rehydrate pages from registry
+            state.pages = data.pages.map(p => ({
+                id: p.id,
+                pdfDocRef: p.pdfDocRef,
+                pageIndex: p.pageIndex
+                // pdfDoc will be looked up during render using docRegistry
+            }));
+            state.elements = data.elements;
+            
             refreshAll();
             clearSelection();
         }
 
         function refreshAll() {
-            document.querySelectorAll('.annotation').forEach(el => el.remove());
-            const pages = document.querySelectorAll('.page');
-            pages.forEach(p => {
-                const num = parseInt(p.dataset.page);
-                state.elements.filter(el => el.page === num).forEach(el => {
-                    p.appendChild(createDOM(el));
-                });
-            });
+            // We just call renderAllPages which handles clearing the DOM and rebuilding
+            renderAllPages();
         }
 
         function app() {} 
         app.exportData = () => {
-            const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.elements));
+            const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ pages: state.pages, elements: state.elements }));
             const a = document.createElement('a');
             a.href = str;
-            a.download = "annotations.json";
+            a.download = "project_data.json";
             document.body.appendChild(a);
             a.click();
             a.remove();
