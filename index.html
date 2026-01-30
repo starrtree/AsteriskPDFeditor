@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Web PDF Editor (Professional)</title>
+    <title>2D Web PDF Editor (With Auto-Scroll)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -77,10 +77,29 @@
             width: 200px;
             background: var(--bg-panel);
             border-right: 1px solid var(--border);
-            overflow-y: auto;
+            overflow-y: auto; /* Scrollable */
             display: flex;
             flex-direction: column;
+            position: relative;
         }
+        
+        /* Invisible overlay for scroll zones visual feedback (optional) */
+        .sidebar::before, .sidebar::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0;
+            height: 50px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 50;
+        }
+        .sidebar::before { top: 0; background: linear-gradient(to bottom, rgba(0,122,204,0.2), transparent); }
+        .sidebar::after { bottom: 0; background: linear-gradient(to top, rgba(0,122,204,0.2), transparent); }
+        
+        .sidebar.scroll-top::before { opacity: 1; }
+        .sidebar.scroll-bottom::after { opacity: 1; }
+
         .thumb { 
             margin: 10px; 
             cursor: grab; 
@@ -98,7 +117,7 @@
         
         /* Dragging States */
         .thumb.dragging { opacity: 0.5; transform: scale(0.95); cursor: grabbing; }
-        .thumb.drag-over { border-color: var(--accent); opacity: 0.8; border-style: dashed; }
+        .thumb.drag-over { border-color: var(--accent); opacity: 0.8; border-style: dashed; background: #333; }
 
         .thumb canvas { max-width: 100%; box-shadow: 0 2px 5px rgba(0,0,0,0.5); pointer-events: none; }
         .thumb-page-num { font-size: 10px; text-align: center; margin-top: 4px; color: var(--text-muted); pointer-events: none; }
@@ -396,6 +415,41 @@
         window.addEventListener('mouseup', onMouseUp);
         ui.workspace.addEventListener('scroll', checkPageVisible); // Update page num on scroll
         
+        // --- Auto Scroll Logic for Sidebar ---
+        // Listen on the container, not just the thumbs, to detect dragging in empty space
+        ui.thumbContainer.addEventListener('dragover', (e) => {
+            e.preventDefault(); // Allow dropping
+            
+            const container = ui.thumbContainer;
+            const rect = container.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+            
+            // Threshold and Speed config
+            const threshold = 50; 
+            const speed = 15;
+            
+            // Check Top Zone
+            if (mouseY < threshold && container.scrollTop > 0) {
+                container.scrollTop -= speed;
+                ui.sidebar.classList.add('scroll-top');
+            } else {
+                ui.sidebar.classList.remove('scroll-top');
+            }
+            
+            // Check Bottom Zone
+            if (mouseY > rect.height - threshold) {
+                container.scrollTop += speed;
+                ui.sidebar.classList.add('scroll-bottom');
+            } else {
+                ui.sidebar.classList.remove('scroll-bottom');
+            }
+        });
+
+        // Cleanup scroll indicators on drag end
+        window.addEventListener('dragend', () => {
+            ui.sidebar.classList.remove('scroll-top', 'scroll-bottom');
+        });
+
         window.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') undo();
             if ((e.ctrlKey || e.metaKey) && e.key === 'y') redo();
@@ -635,20 +689,23 @@
             thumb.addEventListener('dragend', () => {
                 thumb.classList.remove('dragging');
                 state.draggedPageVisualIndex = null;
+                // Cleanup visual states
                 Array.from(ui.thumbContainer.children).forEach(c => c.classList.remove('drag-over'));
             });
 
+            // We handle the scroll logic on the CONTAINER, so we don't need it here.
+            // We just need the visual feedback here.
             thumb.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-            });
-            
-            thumb.addEventListener('dragenter', (e) => {
-                e.preventDefault();
+                e.preventDefault(); 
+                // e.dataTransfer.dropEffect = 'move'; // Optional, sometimes causes cursor flicker
                 thumb.classList.add('drag-over');
             });
             
-            thumb.addEventListener('dragleave', () => {
+            thumb.addEventListener('dragenter', (e) => {
+                thumb.classList.add('drag-over');
+            });
+            
+            thumb.addEventListener('dragleave', (e) => {
                 thumb.classList.remove('drag-over');
             });
 
