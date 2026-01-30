@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Web PDF Editor (With Auto-Scroll)</title>
+    <title>2D Web PDF Editor (Refined)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -77,13 +77,12 @@
             width: 200px;
             background: var(--bg-panel);
             border-right: 1px solid var(--border);
-            overflow-y: auto; /* Scrollable */
+            overflow-y: auto; 
             display: flex;
             flex-direction: column;
             position: relative;
         }
         
-        /* Invisible overlay for scroll zones visual feedback (optional) */
         .sidebar::before, .sidebar::after {
             content: "";
             position: absolute;
@@ -138,7 +137,7 @@
         .page {
             position: relative;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            transition: width 0.2s, height 0.2s; /* Smooth zoom */
+            transition: width 0.2s, height 0.2s;
         }
 
         /* --- Annotations --- */
@@ -159,7 +158,7 @@
             padding: 4px;
             font-family: Helvetica, Arial, sans-serif;
             border-style: solid; 
-            display: flex;
+            display: flex; /* Flex for alignment */
             align-items: center;
         }
         
@@ -348,16 +347,16 @@
     </div>
 
     <script>
-        // --- Registry for PDF Documents (Required for robust Undo/Redo) ---
+        // --- Registry for PDF Documents ---
         const docRegistry = {}; 
 
         // --- State Management ---
         const state = {
-            pages: [], // Array of { pdfDocRef (string), pageIndex (int), id (unique string) }
+            pages: [], 
             totalVisualPages: 0,
-            scale: 1.0, // Default zoom
+            scale: 1.0, 
             tool: 'cursor', 
-            elements: [], // Flat array of elements
+            elements: [], 
             history: [],
             historyIndex: -1,
             selections: [], 
@@ -403,7 +402,6 @@
         document.getElementById('file-in').addEventListener('change', (e) => loadPDF(e.target.files[0], true));
         document.getElementById('file-insert').addEventListener('change', (e) => prepareInsert(e.target.files[0]));
         
-        // Zoom Listener
         ui.zoomSlider.addEventListener('input', (e) => {
             state.scale = parseFloat(e.target.value);
             ui.zoomLabel.innerText = Math.round(state.scale * 100) + '%';
@@ -413,22 +411,17 @@
         window.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
-        ui.workspace.addEventListener('scroll', checkPageVisible); // Update page num on scroll
+        ui.workspace.addEventListener('scroll', checkPageVisible);
         
-        // --- Auto Scroll Logic for Sidebar ---
-        // Listen on the container, not just the thumbs, to detect dragging in empty space
+        // --- Auto Scroll Logic ---
         ui.thumbContainer.addEventListener('dragover', (e) => {
-            e.preventDefault(); // Allow dropping
-            
+            e.preventDefault(); 
             const container = ui.thumbContainer;
             const rect = container.getBoundingClientRect();
             const mouseY = e.clientY - rect.top;
-            
-            // Threshold and Speed config
             const threshold = 50; 
             const speed = 15;
             
-            // Check Top Zone
             if (mouseY < threshold && container.scrollTop > 0) {
                 container.scrollTop -= speed;
                 ui.sidebar.classList.add('scroll-top');
@@ -436,7 +429,6 @@
                 ui.sidebar.classList.remove('scroll-top');
             }
             
-            // Check Bottom Zone
             if (mouseY > rect.height - threshold) {
                 container.scrollTop += speed;
                 ui.sidebar.classList.add('scroll-bottom');
@@ -445,12 +437,14 @@
             }
         });
 
-        // Cleanup scroll indicators on drag end
         window.addEventListener('dragend', () => {
             ui.sidebar.classList.remove('scroll-top', 'scroll-bottom');
         });
 
         window.addEventListener('keydown', (e) => {
+            // ESC to reset tool
+            if (e.key === 'Escape') setTool('cursor');
+
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') undo();
             if ((e.ctrlKey || e.metaKey) && e.key === 'y') redo();
             if (e.key === 'Delete' && state.selections.length > 0 && !document.activeElement.isContentEditable) deleteSelections();
@@ -474,7 +468,6 @@
             debouncedRender();
         }
 
-        // Debounce render to prevent lag on zoom drag
         let renderTimeout;
         function debouncedRender() {
             clearTimeout(renderTimeout);
@@ -492,8 +485,6 @@
             try {
                 const buffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument(buffer).promise;
-                
-                // Register this document instance so we can find it again after Undo
                 const docRefId = 'doc-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                 pdf.refId = docRefId;
                 docRegistry[docRefId] = pdf;
@@ -509,9 +500,9 @@
 
                 for (let i = 1; i <= numPages; i++) {
                     state.pages.push({
-                        pdfDocRef: docRefId, // Store reference string, not heavy object
+                        pdfDocRef: docRefId, 
                         pageIndex: i,
-                        id: `page-${Date.now()}-${i}` // Unique ID for this specific visual page
+                        id: `page-${Date.now()}-${i}` 
                     });
                 }
 
@@ -564,7 +555,7 @@
         }
 
         async function confirmInsert() {
-            const insertIndex = parseInt(ui.insertInput.value) - 1; // Convert to 0-based index
+            const insertIndex = parseInt(ui.insertInput.value) - 1; 
             if (isNaN(insertIndex) || insertIndex < 0) insertAt = 0;
 
             ui.modal.style.display = 'none';
@@ -573,7 +564,6 @@
             const { refId, doc } = state.tempInsertPdf;
             const count = state.tempInsertPageCount;
 
-            // Create new page entries
             const newPageEntries = [];
             for (let i = 1; i <= count; i++) {
                 newPageEntries.push({
@@ -583,7 +573,6 @@
                 });
             }
 
-            // Insert into state.pages array
             state.pages.splice(insertIndex, 0, ...newPageEntries);
             
             await renderAllPages();
@@ -596,7 +585,6 @@
 
         // --- Rendering ---
         
-        // Helper to preserve scroll
         let savedScrollTop = 0;
 
         async function renderAllPages() {
@@ -604,7 +592,6 @@
             state.totalVisualPages = state.pages.length;
             ui.thumbContainer.innerHTML = '';
             
-            // Keep the marquee and loader
             ui.workspace.innerHTML = '<div id="loader" class="hidden">Loading PDF...</div><div id="marquee-box"></div>';
             ui.marquee = document.getElementById('marquee-box');
 
@@ -612,7 +599,6 @@
             
             for (let i = 0; i < state.pages.length; i++) {
                 const pageRef = state.pages[i];
-                // Get actual pdf object from registry
                 const pdfDoc = docRegistry[pageRef.pdfDocRef];
                 if(pdfDoc) {
                     promises.push(renderSinglePage(i + 1, pageRef, pdfDoc));
@@ -626,7 +612,6 @@
                     ui.workspace.appendChild(res.dom);
                 });
                 
-                // Restore Scroll
                 ui.workspace.scrollTop = savedScrollTop;
                 
                 checkPageVisible();
@@ -639,13 +624,12 @@
             const page = await pdfDoc.getPage(pageRef.pageIndex);
             const viewport = page.getViewport({ scale: state.scale });
             
-            // 1. Main Page Wrapper
             const wrapper = document.createElement('div');
             wrapper.className = 'page';
             wrapper.style.width = `${viewport.width}px`;
             wrapper.style.height = `${viewport.height}px`;
-            wrapper.dataset.pageId = pageRef.id; // Use ID, not number
-            wrapper.dataset.visualNum = visualNum; // Keep number for display logic
+            wrapper.dataset.pageId = pageRef.id; 
+            wrapper.dataset.visualNum = visualNum;
 
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width;
@@ -653,19 +637,16 @@
             await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
             wrapper.appendChild(canvas);
 
-            // 2. Render Annotations for this page ID (Changed from number to ID)
             const pageElements = state.elements.filter(el => el.pageId === pageRef.id);
             pageElements.forEach(el => {
                 wrapper.appendChild(createDOM(el));
             });
 
-            // 3. Thumbnail
             const thumb = document.createElement('div');
             thumb.className = 'thumb';
             thumb.draggable = true;
             thumb.dataset.visualIndex = visualNum - 1;
             
-            // Highlight current page
             const currentPageId = ui.pageLabel.getAttribute('data-active-id');
             if (currentPageId === pageRef.id) thumb.classList.add('active');
             else thumb.classList.remove('active');
@@ -677,27 +658,21 @@
                 }
             };
             
-            // Drag Events
             thumb.addEventListener('dragstart', (e) => {
                 state.draggedPageVisualIndex = parseInt(thumb.dataset.visualIndex);
                 thumb.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'move';
-                // Set data for firefox compatibility
                 e.dataTransfer.setData('text/plain', thumb.dataset.visualIndex);
             });
             
             thumb.addEventListener('dragend', () => {
                 thumb.classList.remove('dragging');
                 state.draggedPageVisualIndex = null;
-                // Cleanup visual states
                 Array.from(ui.thumbContainer.children).forEach(c => c.classList.remove('drag-over'));
             });
 
-            // We handle the scroll logic on the CONTAINER, so we don't need it here.
-            // We just need the visual feedback here.
             thumb.addEventListener('dragover', (e) => {
                 e.preventDefault(); 
-                // e.dataTransfer.dropEffect = 'move'; // Optional, sometimes causes cursor flicker
                 thumb.classList.add('drag-over');
             });
             
@@ -719,7 +694,7 @@
             });
 
             const thumbCanvas = document.createElement('canvas');
-            const thumbVp = page.getViewport({ scale: 0.15 }); // Thumbnail scale constant
+            const thumbVp = page.getViewport({ scale: 0.15 });
             thumbCanvas.width = thumbVp.width;
             thumbCanvas.height = thumbVp.height;
             await page.render({ canvasContext: thumbCanvas.getContext('2d'), viewport: thumbVp }).promise;
@@ -749,9 +724,7 @@
                         ui.pageLabel.innerText = `Page ${pageNum}`;
                         ui.pageLabel.setAttribute('data-active-id', pageId);
                         
-                        // Update Sidebar Highlight
                         document.querySelectorAll('.thumb').forEach(t => t.classList.remove('active'));
-                        // Find thumb with matching visual index logic
                         const thumbs = Array.from(ui.thumbContainer.children);
                         if(thumbs[pageNum-1]) thumbs[pageNum-1].classList.add('active');
                         
@@ -761,20 +734,14 @@
             });
         }
 
-        // --- Page Reordering Logic (Improved) ---
         function movePage(fromIndex, toIndex) {
-            // 1. Move the page object in the array
-            // We use Splice: Remove from 'from', Insert at 'to'
             const pageToMove = state.pages[fromIndex];
             state.pages.splice(fromIndex, 1);
             state.pages.splice(toIndex, 0, pageToMove);
-
-            // 2. Re-render
             renderAllPages();
             pushHistory();
         }
 
-        // --- Helper: Hex to RGBA ---
         function applyOpacity(hex, opacity) {
             if (!hex || hex === 'transparent' || opacity === 1) return hex;
             hex = hex.replace('#', '');
@@ -784,7 +751,6 @@
             return `rgba(${r}, ${g}, ${b}, ${opacity})`;
         }
 
-        // --- DOM Creation ---
         function createDOM(el) {
             const div = document.createElement('div');
             div.className = `annotation type-${el.type}`;
@@ -795,6 +761,11 @@
             div.style.width = el.w + 'px';
             div.style.height = el.h + 'px';
             div.id = el.id;
+
+            // Text Alignment Support
+            if (el.type === 'text' || el.type === 'link') {
+                div.style.textAlign = el.textAlign || 'left';
+            }
 
             if (el.type === 'text' || el.type === 'link') {
                 div.style.fontSize = (el.fontSize || 16) + 'px';
@@ -851,7 +822,6 @@
                     if (el.linkType === 'url') {
                         window.open(el.targetUrl, '_blank');
                     } else {
-                        // Find visual index of target page ID
                         const targetIdx = state.pages.findIndex(p => p.id === el.targetPageId);
                         if(targetIdx > -1) {
                             const wrapper = document.querySelectorAll('.page')[targetIdx];
@@ -883,7 +853,6 @@
             const pageWrapper = target.closest('.page');
             if (!pageWrapper) return;
 
-            // Use Page ID now
             const pageId = pageWrapper.dataset.pageId;
             const rect = pageWrapper.getBoundingClientRect();
 
@@ -902,26 +871,25 @@
                 const id = elDiv.id;
                 const elData = state.elements.find(x => x.id === id);
                 
+                // Focus logic for text content specifically
                 if ((state.tool === 'text' || state.tool === 'link') && !state.isDrawing) {
                     const content = elDiv.querySelector('.text-content');
-                    setTimeout(() => content.focus(), 0);
-                    selectElement(id);
-                    return;
-                }
-
-                if (state.tool === 'cursor') {
-                    if (!e.shiftKey && !state.selections.some(s => s.id === id)) {
-                        selectElement(id); 
-                    } else if (e.shiftKey) {
-                        toggleSelection(id); 
+                    if (target === content || content.contains(target)) {
+                        setTimeout(() => content.focus(), 0);
+                        selectElement(id);
+                        return;
                     }
-                    startDrag(e);
-                    return;
                 }
 
+                // Smart Drag: If we clicked on an existing element (not the text content specifically),
+                // we want to select and move it, regardless of the current tool.
+                // This fixes the issue where you have the Rect tool active but want to move a box.
+                selectElement(id);
+                startDrag(e);
                 return;
             }
 
+            // If we reached here, we clicked on empty space
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
@@ -951,7 +919,6 @@
         function startMarquee(e) {
             state.isMarquee = true;
             state.marqueeStart = { x: e.clientX, y: e.clientY };
-            
             ui.marquee.style.display = 'block';
             ui.marquee.style.left = e.clientX + 'px';
             ui.marquee.style.top = e.clientY + 'px';
@@ -1106,15 +1073,16 @@
         function startDrawing(e, pageId, x, y) {
             state.isDrawing = true;
             state.drawStart = { x, y };
-            state.drawPageId = pageId; // Use Page ID
+            state.drawPageId = pageId; 
             
             const defaults = {
                 id: 'el-' + Date.now(),
                 type: state.tool,
-                pageId: pageId, // Changed from 'page' to 'pageId'
+                pageId: pageId, 
                 x: x, y: y,
                 w: 0, h: 0,
-                content: ''
+                content: '',
+                textAlign: 'left' // Default alignment
             };
 
             if (state.tool === 'text') {
@@ -1137,7 +1105,7 @@
                 defaults.fillColor = 'transparent';
                 defaults.fillOpacity = 0;
                 defaults.linkType = 'page'; 
-                defaults.targetPageId = pageId; // Default link to same page
+                defaults.targetPageId = pageId; 
                 defaults.targetUrl = 'https://';
                 defaults.content = ''; 
             }
@@ -1237,8 +1205,18 @@
             if (el.type === 'text' || el.type === 'link') {
                 panel.innerHTML += `<div style="height:1px; background:var(--border); margin: 5px 0;"></div>`;
                 
+                // Alignment (Left, Center, Right)
+                const currentAlign = el.textAlign || 'left';
                 panel.innerHTML += `
-                    <div class="prop-row inputs-bottom">
+                    <div class="prop-group">
+                        <label>Text Alignment</label>
+                        <select id="prop-align">
+                            <option value="left" ${currentAlign === 'left' ? 'selected' : ''}>Left</option>
+                            <option value="center" ${currentAlign === 'center' ? 'selected' : ''}>Center</option>
+                            <option value="right" ${currentAlign === 'right' ? 'selected' : ''}>Right</option>
+                        </select>
+                    </div>
+                    <div class="prop-row inputs-bottom" style="margin-top:5px;">
                         <div class="prop-group"><label>Font Size</label><input type="number" id="prop-fs" value="${el.fontSize || 16}"></div>
                         <div class="prop-group"><label>Text Color</label><input type="color" id="prop-tc" value="${hexFromStyle(el.color, '#000000')}"></div>
                     </div>
@@ -1288,7 +1266,6 @@
                 `;
 
                 if (currentType === 'page') {
-                    // Get visual page number from ID
                     const targetIdx = state.pages.findIndex(p => p.id === el.targetPageId);
                     const visualNum = targetIdx > -1 ? targetIdx + 1 : 1;
                     
@@ -1321,6 +1298,16 @@
             bindGeometryEvents();
             
             if (el.type === 'text' || el.type === 'link') {
+                // Bind Alignment
+                const alignInput = document.getElementById('prop-align');
+                if(alignInput) {
+                    alignInput.addEventListener('change', (e) => {
+                        el.textAlign = e.target.value;
+                        state.selections[0].dom.style.textAlign = el.textAlign;
+                        pushHistory();
+                    });
+                }
+
                 bindStyleEvents('fs', 'fontSize', 'px');
                 bindColorEvents('tc', 'color');
             }
@@ -1438,11 +1425,9 @@
             setVal('prop-h', el.h);
         }
 
-        // Helper: Convert rgba/rgb to Hex
         function hexFromStyle(colorStr, defaultHex) {
             if (!colorStr || colorStr === 'transparent') return defaultHex;
             if (colorStr.startsWith('#')) return colorStr;
-            
             const rgb = colorStr.match(/\d+/g);
             if (rgb && rgb.length >= 3) {
                 return "#" + ((1 << 24) + (parseInt(rgb[0]) << 16) + (parseInt(rgb[1]) << 8) + parseInt(rgb[2])).toString(16).slice(1);
@@ -1460,20 +1445,18 @@
             pushHistory();
         }
 
-        // --- History (Fixed for PDF.js Objects) ---
+        // --- History ---
         function pushHistory() {
             if (state.historyIndex < state.history.length - 1) {
                 state.history = state.history.slice(0, state.historyIndex + 1);
             }
             
-            // Create a lightweight snapshot of pages (only IDs and Refs, not the heavy object)
             const pagesSnapshot = state.pages.map(p => ({
                 id: p.id,
                 pdfDocRef: p.pdfDocRef,
                 pageIndex: p.pageIndex
             }));
 
-            // Deep clone elements (safe)
             const elementsSnapshot = JSON.parse(JSON.stringify(state.elements));
 
             state.history.push({ pages: pagesSnapshot, elements: elementsSnapshot });
@@ -1497,12 +1480,10 @@
         }
 
         function restoreState(data) {
-            // Rehydrate pages from registry
             state.pages = data.pages.map(p => ({
                 id: p.id,
                 pdfDocRef: p.pdfDocRef,
                 pageIndex: p.pageIndex
-                // pdfDoc will be looked up during render using docRegistry
             }));
             state.elements = data.elements;
             
@@ -1511,7 +1492,6 @@
         }
 
         function refreshAll() {
-            // We just call renderAllPages which handles clearing the DOM and rebuilding
             renderAllPages();
         }
 
