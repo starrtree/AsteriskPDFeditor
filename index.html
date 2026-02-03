@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2D Web PDF Editor (Export Ready)</title>
+    <title>2D Web PDF Editor (Server Export)</title>
     
-    <!-- PDF Libraries -->
+    <!-- PDF.js for Display -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
+    
+    <!-- PDF-Lib (Kept for reference, but server does the work now) -->
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -162,7 +164,7 @@
             padding: 4px;
             font-family: Helvetica, Arial, sans-serif;
             border-style: solid; 
-            display: flex; /* Flex for alignment */
+            display: flex; 
             align-items: center;
         }
         
@@ -278,7 +280,7 @@
 
     <header>
         <div class="brand">
-            <i class="fas fa-file-pdf"></i> PDF Editor Pro
+            <i class="fas fa-file-pdf"></i> PDF Editor Pro (Server Export)
         </div>
         <div class="toolbar">
             <button onclick="document.getElementById('file-in').click()">Open PDF</button>
@@ -301,7 +303,7 @@
             
             <div class="separator"></div>
             
-            <button onclick="app.exportPDF()" style="color: #4caf50;"><i class="fas fa-file-export"></i> Export PDF</button>
+            <button onclick="app.exportPDF()" style="color: #4caf50; font-weight:bold;"><i class="fas fa-file-export"></i> Export PDF</button>
         </div>
         <div style="display:flex; align-items:center; gap:15px;">
             <div class="zoom-control">
@@ -351,8 +353,11 @@
     </div>
 
     <script>
+        // --- Initialize App Object ---
+        const app = {}; 
+
         // --- Registry for PDF Documents ---
-        // Structure: { 'refId': { doc: pdfjsLibDocument, buffer: ArrayBuffer } }
+        // Structure: { 'refId': { doc: pdfjsLibDocument, buffer: Base64String } }
         const docRegistry = {}; 
 
         // --- State Management ---
@@ -447,9 +452,7 @@
         });
 
         window.addEventListener('keydown', (e) => {
-            // ESC to reset tool
             if (e.key === 'Escape') setTool('cursor');
-
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') undo();
             if ((e.ctrlKey || e.metaKey) && e.key === 'y') redo();
             if (e.key === 'Delete' && state.selections.length > 0 && !document.activeElement.isContentEditable) deleteSelections();
@@ -481,19 +484,34 @@
             }, 100);
         }
 
-        // --- PDF Logic ---
+        // --- PDF Logic (BASE64 VERSION) ---
 
         async function loadPDF(file, reset = false) {
             if (!file) return;
             ui.loader.classList.remove('hidden');
 
             try {
-                const buffer = await file.arrayBuffer();
+                // 1. Convert file to Base64 String immediately
+                const base64String = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+
+                // 2. Convert Base64 BACK to Buffer just for the Viewer (PDF.js)
+                const pdfData = atob(base64String.split(',')[1]);
+                const buffer = new Uint8Array(pdfData.length);
+                for (let i = 0; i < pdfData.length; i++) {
+                    buffer[i] = pdfData.charCodeAt(i);
+                }
+
+                // 3. Give the Buffer to PDF.js
                 const pdf = await pdfjsLib.getDocument(buffer).promise;
                 const docRefId = 'doc-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                 
-                // Store BOTH the loaded doc AND the raw buffer for export
-                docRegistry[docRefId] = { doc: pdf, buffer: buffer };
+                // 4. Save the Base64 STRING to the registry (The Export function needs this!)
+                docRegistry[docRefId] = { doc: pdf, buffer: base64String };
 
                 if (reset) {
                     state.pages = [];
@@ -519,25 +537,40 @@
                 }
                 
             } catch(err) {
-                alert("Error loading PDF");
+                alert("Error loading PDF: " + err.message);
                 console.error(err);
             } finally {
                 ui.loader.classList.add('hidden');
             }
         }
 
-        // --- Insert PDF Logic ---
+        // --- Insert PDF Logic (BASE64 VERSION) ---
 
         async function prepareInsert(file) {
             if (!file) return;
             ui.loader.classList.remove('hidden');
             
             try {
-                const buffer = await file.arrayBuffer();
+                // 1. Convert to Base64 String
+                const base64String = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+
+                // 2. Convert to Buffer for Viewer
+                const pdfData = atob(base64String.split(',')[1]);
+                const buffer = new Uint8Array(pdfData.length);
+                for (let i = 0; i < pdfData.length; i++) {
+                    buffer[i] = pdfData.charCodeAt(i);
+                }
+
                 const pdf = await pdfjsLib.getDocument(buffer).promise;
                 const docRefId = 'ins-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
                 
-                docRegistry[docRefId] = { doc: pdf, buffer: buffer };
+                // 3. Save String
+                docRegistry[docRefId] = { doc: pdf, buffer: base64String };
 
                 state.tempInsertPdf = { refId: docRefId, doc: pdf };
                 state.tempInsertPageCount = pdf.numPages;
@@ -549,7 +582,7 @@
                 ui.modal.style.display = 'flex';
                 
             } catch(err) {
-                alert("Error preparing insertion");
+                alert("Error preparing insertion: " + err.message);
                 ui.loader.classList.add('hidden');
             }
         }
@@ -768,7 +801,6 @@
             div.style.height = el.h + 'px';
             div.id = el.id;
 
-            // Text Alignment Support
             if (el.type === 'text' || el.type === 'link') {
                 div.style.textAlign = el.textAlign || 'left';
             }
@@ -1369,7 +1401,7 @@
                 state.selections[0].element[prop] = val;
                 if (prop === 'fillColor') {
                     const el = state.selections[0].element;
-                    const op = el.fillOpacity !== undefined ? el.fillOpacity : 1;
+                    const op = el.fillOpacity !== undefined ? el.fillOpacity :1;
                     state.selections[0].dom.style.backgroundColor = applyOpacity(val, op);
                 } else {
                     state.selections[0].dom.style[prop] = val;
@@ -1488,118 +1520,51 @@
             renderAllPages();
         }
 
-        // --- Export to PDF Logic ---
+        // --- Export to PDF Logic (Server Version) ---
         app.exportPDF = async () => {
-            ui.loader.classList.remove('hidden');
-            ui.loader.innerText = "Generating PDF...";
+            if (state.pages.length === 0) return alert("No PDF loaded.");
             
+            // --- YOUR LIVE URL IS PLUGGED IN BELOW ---
+            const API_URL = 'https://pdf-editor-api--maxstarrtree.replit.app/edit-pdf'; 
+        
+            ui.loader.classList.remove('hidden');
+            ui.loader.innerText = "Uploading to Server...";
+        
             try {
-                const { PDFDocument, rgb, StandardFonts } = PDFLib;
-                const pdfDoc = await PDFDocument.create();
-                const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-
-                // Helper to parse color
-                const getRGB = (hex) => {
-                    if (!hex || hex === 'transparent') return rgb(0, 0, 0);
-                    hex = hex.replace('#', '');
-                    const r = parseInt(hex.substring(0, 2), 16) / 255;
-                    const g = parseInt(hex.substring(2, 4), 16) / 255;
-                    const b = parseInt(hex.substring(4, 6), 16) / 255;
-                    return rgb(r, g, b);
-                };
-
-                // Helper to convert HTML Top-Left to PDF Bottom-Left
-                const flipY = (y, height, pageHeight) => pageHeight - y - height;
-
-                for (let i = 0; i < state.pages.length; i++) {
-                    const pageRef = state.pages[i];
-                    const regItem = docRegistry[pageRef.pdfDocRef];
-                    
-                    if (!regItem || !regItem.buffer) continue;
-
-                    // 1. Load the source PDF page
-                    const srcDoc = await PDFDocument.load(regItem.buffer);
-                    const [copiedPage] = await pdfDoc.copyPages(srcDoc, [pageRef.pageIndex - 1]);
-                    const page = pdfDoc.addPage(copiedPage);
-                    const pageHeight = page.getHeight();
-
-                    // 2. Draw Annotations for this page
-                    const pageElements = state.elements.filter(el => el.pageId === pageRef.id);
-                    
-                    for (const el of pageElements) {
-                        const x = el.x;
-                        const y = flipY(el.y, el.h, pageHeight);
-                        const w = el.w;
-                        const h = el.h;
-
-                        if (el.type === 'rect') {
-                            const fillColor = getRGB(el.fillColor);
-                            const borderColor = getRGB(el.borderColor);
-                            
-                            page.drawRectangle({
-                                x, y, width: w, height: h,
-                                color: fillColor,
-                                opacity: el.fillOpacity !== undefined ? el.fillOpacity : 0.2,
-                                borderColor: borderColor,
-                                borderWidth: el.borderWidth || 0,
-                                borderOpacity: 1,
-                            });
-                        } 
-                        else if (el.type === 'text' || el.type === 'link') {
-                            const textColor = getRGB(el.color);
-                            const fontSize = el.fontSize || 16;
-                            
-                            // Simple alignment logic
-                            let textX = x;
-                            if (el.textAlign === 'center') {
-                                // Approximate text width (rough estimate)
-                                const widthEstimate = fontSize * el.content.length * 0.6; 
-                                textX = x + (w / 2) - (widthEstimate / 2);
-                            } else if (el.textAlign === 'right') {
-                                const widthEstimate = fontSize * el.content.length * 0.6;
-                                textX = x + w - widthEstimate;
-                            }
-                            
-                            // Add some padding for text Y
-                            const textY = y + (h * 0.8); 
-
-                            page.drawText(el.content || '', {
-                                x: textX + 4, // small padding
-                                y: textY,
-                                size: fontSize,
-                                font: font,
-                                color: textColor,
-                                opacity: 1,
-                            });
-
-                            // Draw Link Rectangle (Invisible or Visible)
-                            if (el.type === 'link') {
-                                if (el.linkType === 'url') {
-                                    page.drawLinkToUrl({
-                                        x, y, width: w, height: h,
-                                        url: el.targetUrl,
-                                    });
-                                } else {
-                                    // Internal link
-                                    const targetIdx = state.pages.findIndex(p => p.id === el.targetPageId);
-                                    if(targetIdx > -1) {
-                                        // Note: This assumes linear page order 1,2,3. 
-                                        // PDF-lib linkToPage is 0-indexed based on document pages.
-                                        page.drawLinkToPage({
-                                            x, y, width: w, height: h,
-                                            pageIndex: targetIdx,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
+                // 1. Find the source PDF
+                const firstPageRef = state.pages[0];
+                const regItem = docRegistry[firstPageRef.pdfDocRef];
+                
+                if (!regItem) throw new Error("Source PDF not found");
+        
+                // 2. Convert Base64 back to Blob
+                const base64Data = regItem.buffer; 
+                const fetchResponse = await fetch(base64Data);
+                const pdfBlob = await fetchResponse.blob();
+                
+                // 3. Prepare data
+                const formData = new FormData();
+                formData.append('pdf', pdfBlob, 'source.pdf');
+                formData.append('pages', JSON.stringify(state.pages));
+                formData.append('elements', JSON.stringify(state.elements));
+                formData.append('scale', state.scale);
+        
+                ui.loader.innerText = "Processing on Server (This might take 15-20s to wake up)...";
+        
+                // 4. Send to your live API
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData
+                });
+        
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error("Server Error: " + errorText);
                 }
-
-                // 3. Save and Download
-                const pdfBytes = await pdfDoc.save();
-                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-                const url = URL.createObjectURL(blob);
+        
+                // 5. Download result
+                const resultBlob = await response.blob();
+                const url = URL.createObjectURL(resultBlob);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = `edited_document_${Date.now()}.pdf`;
@@ -1607,10 +1572,10 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-
+        
             } catch (err) {
                 console.error(err);
-                alert("Error generating PDF. See console for details.");
+                alert("Export Failed: " + err.message);
             } finally {
                 ui.loader.classList.add('hidden');
                 ui.loader.innerText = "Loading PDF...";
